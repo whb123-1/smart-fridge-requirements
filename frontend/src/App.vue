@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { api } from './services/api'
 import pixelPet from './assets/xianling-pixel-pet-transparent.png'
 import FridgeModel from './components/FridgeModel.vue'
+import AssistantPet from './components/AssistantPet.vue'
 
 const page = ref('home')
 const unit = ref('C')
@@ -96,6 +97,7 @@ function notify(message) {
   toast.value = message
   setTimeout(() => { if (toast.value === message) toast.value = '' }, 2400)
 }
+
 async function addFood() {
   if (!newFood.name || !newFood.amount) return notify('请先填写食材名称和数量')
   const created = await api.addFood({ ...newFood })
@@ -181,15 +183,15 @@ function sendAssistantMessage(preset = '') {
             </div>
 
             <div class="orbit-left orbit-panel">
-              <button class="inventory-orbit" @click="page='inventory'">
+              <button class="inventory-orbit fridge-control tone-chill" @click="page='inventory'">
                 <span class="inventory-orbit-icon" v-html="icon('box',22)"></span>
                 <span><small>冰箱库存</small><b>查看库存</b><em>{{ foods.length }} 项在库</em></span>
                 <span class="inventory-orbit-arrow" v-html="icon('chevron',18)"></span>
               </button>
               <div class="orbit-actions orbit-actions-left" aria-label="常用操作">
-                <button class="orbit-action action-add" @click="showAdd=true"><span v-html="icon('plus',22)"></span><b>添加食材</b></button>
-                <button class="orbit-action" :class="{listening:isListening}" @click="isListening=!isListening"><span v-html="icon('mic',22)"></span><b>{{ isListening ? '正在聆听' : '语音添加' }}</b></button>
-                <button class="orbit-action" @click="page='diet'"><span v-html="icon('spark',22)"></span><b>记录一餐</b></button>
+                <button class="orbit-action fridge-control tone-fresh is-primary" @click="showAdd=true"><span v-html="icon('plus',22)"></span><b>添加食材</b></button>
+                <button class="orbit-action fridge-control tone-chill" :class="{listening:isListening}" @click="isListening=!isListening"><span v-html="icon('mic',22)"></span><b>{{ isListening ? '正在聆听' : '语音添加' }}</b></button>
+                <button class="orbit-action fridge-control tone-variable" @click="page='diet'"><span v-html="icon('spark',22)"></span><b>记录一餐</b></button>
               </div>
             </div>
 
@@ -197,18 +199,22 @@ function sendAssistantMessage(preset = '') {
               <FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" />
             </article>
 
-            <div class="orbit-actions orbit-actions-right orbit-panel" aria-label="管理操作">
-              <button class="orbit-action" @click="page='shopping'"><span v-html="icon('bag',22)"></span><b>购物清单</b><em>3</em></button>
-              <button class="orbit-action" @click="page='stats'"><span v-html="icon('chart',22)"></span><b>数据统计</b></button>
-              <button class="orbit-action" @click="page='settings'"><span v-html="icon('settings',22)"></span><b>冰箱设置</b></button>
+            <div class="orbit-right-rail orbit-panel" :class="{ 'assistant-active': showAssistant }">
+              <AssistantPet v-model:open="showAssistant" v-model:input="assistantInput" class="home-assistant" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
+              <div class="orbit-actions orbit-actions-right" aria-label="管理操作">
+                <button class="orbit-action fridge-control tone-fresh" @click="page='shopping'"><span v-html="icon('bag',22)"></span><b>购物清单</b><em>3</em></button>
+                <button class="orbit-action fridge-control tone-freeze" @click="page='stats'"><span v-html="icon('chart',22)"></span><b>数据统计</b></button>
+                <button class="orbit-action fridge-control tone-smart" @click="page='settings'"><span v-html="icon('settings',22)"></span><b>冰箱设置</b></button>
+              </div>
             </div>
             <div class="orbit-actions-mobile" aria-label="快捷操作">
-              <button class="orbit-action action-add" @click="showAdd=true"><span v-html="icon('plus',22)"></span><b>添加食材</b></button>
-              <button class="orbit-action" :class="{listening:isListening}" @click="isListening=!isListening"><span v-html="icon('mic',22)"></span><b>{{ isListening ? '正在聆听' : '语音添加' }}</b></button>
-              <button class="orbit-action" @click="page='diet'"><span v-html="icon('spark',22)"></span><b>记录一餐</b></button>
-              <button class="orbit-action" @click="page='shopping'"><span v-html="icon('bag',22)"></span><b>购物清单</b><em>3</em></button>
-              <button class="orbit-action" @click="page='stats'"><span v-html="icon('chart',22)"></span><b>数据统计</b></button>
-              <button class="orbit-action" @click="page='settings'"><span v-html="icon('settings',22)"></span><b>冰箱设置</b></button>
+              <AssistantPet v-model:open="showAssistant" v-model:input="assistantInput" class="mobile-assistant" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
+              <button class="orbit-action fridge-control tone-fresh is-primary" @click="showAdd=true"><span v-html="icon('plus',22)"></span><b>添加食材</b></button>
+              <button class="orbit-action fridge-control tone-chill" :class="{listening:isListening}" @click="isListening=!isListening"><span v-html="icon('mic',22)"></span><b>{{ isListening ? '正在聆听' : '语音添加' }}</b></button>
+              <button class="orbit-action fridge-control tone-variable" @click="page='diet'"><span v-html="icon('spark',22)"></span><b>记录一餐</b></button>
+              <button class="orbit-action fridge-control tone-fresh" @click="page='shopping'"><span v-html="icon('bag',22)"></span><b>购物清单</b><em>3</em></button>
+              <button class="orbit-action fridge-control tone-freeze" @click="page='stats'"><span v-html="icon('chart',22)"></span><b>数据统计</b></button>
+              <button class="orbit-action fridge-control tone-smart" @click="page='settings'"><span v-html="icon('settings',22)"></span><b>冰箱设置</b></button>
             </div>
           </section>
         </template>
@@ -270,17 +276,7 @@ function sendAssistantMessage(preset = '') {
 
     <div v-if="showLogin" class="modal-backdrop" @click.self="showLogin=false"><form class="modal login-modal" @submit.prevent="login"><div class="brand login-brand"><span class="brand-mark"><i></i><i></i><i></i></span><span><b>鲜知</b><small>让每一份新鲜被好好使用</small></span></div><h2>欢迎回来</h2><label>手机号或邮箱<input placeholder="输入账号" required /></label><label>密码<input type="password" placeholder="输入密码" required /></label><button class="primary-btn wide-button">登录</button><p>还没有账号？<button type="button" class="text-btn" @click="notify('注册入口已准备好')">创建账号</button></p></form></div>
     <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check',17)"></span>{{toast}}</div></transition>
-    <section class="ai-pet" :class="{ open: showAssistant }" aria-label="鲜知 AI 助手">
-      <div v-if="showAssistant" class="ai-pet-panel" role="dialog" aria-label="与鲜知助手对话">
-        <header class="ai-pet-head"><div><img class="ai-pet-mini" :src="pixelPet" alt="" /><div><small>鲜知 AI 助手</small><b>正在了解{{ assistantPageName }}</b></div></div><button @click="showAssistant=false" aria-label="关闭助手"><span v-html="icon('close',16)"></span></button></header>
-        <div class="ai-pet-messages" aria-live="polite"><p v-for="message in assistantMessages" :key="message.id" :class="message.role">{{ message.text }}</p></div>
-        <div class="ai-pet-prompts"><button @click="sendAssistantMessage('怎么添加食材')">添加食材</button><button @click="sendAssistantMessage('冰箱状态如何')">冰箱状态</button><button @click="sendAssistantMessage('今天能做什么')">今晚吃什么</button></div>
-        <form class="ai-pet-input" @submit.prevent="sendAssistantMessage()"><input v-model="assistantInput" placeholder="问问鲜知助手" aria-label="输入问题" /><button :disabled="!assistantInput.trim()" aria-label="发送问题"><span v-html="icon('chevron',17)"></span></button></form>
-      </div>
-      <button class="ai-pet-trigger" @click="showAssistant=!showAssistant" :aria-expanded="showAssistant" aria-label="打开鲜知 AI 助手">
-        <img class="ai-pet-face" :src="pixelPet" alt="" />
-      </button>
-    </section>
+    <AssistantPet v-if="page !== 'home'" v-model:open="showAssistant" v-model:input="assistantInput" class="global-assistant" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
     <nav v-if="false" class="mobile-nav"><button v-for="item in nav.slice(0,5)" :class="{active:page===item[0]}" @click="page=item[0]"><span v-html="icon(item[2],19)"></span><small>{{item[1]}}</small></button></nav>
   </div>
 </template>

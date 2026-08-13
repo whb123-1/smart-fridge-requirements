@@ -483,7 +483,7 @@ function addSmartDisplay(parent) {
   for (const x of [-0.23, 0.23]) cylinder(0.045, 0.025, faceMaterial, [x, 3.47, 1.42], parent, { rotation: [Math.PI / 2, 0, 0], castShadow: false })
   const smile = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 8, 22, Math.PI), faceMaterial)
   smile.rotation.z = Math.PI
-  smile.position.set(0, 3.35, 1.42)
+  smile.position.set(0, 3.4, 1.42)
   parent.add(smile)
 }
 
