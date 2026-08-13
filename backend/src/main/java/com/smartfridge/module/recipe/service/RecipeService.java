@@ -51,7 +51,7 @@ public class RecipeService {
 
     // ---------- 推荐 ----------
     public List<RecipeMatchVO> recommend(String keyword, Integer cookTimeMax, String taste, String dietGoal) {
-        Map<String, BigDecimal> stock = stockMap();
+        Map<String, List<FoodItem>> stock = stockMap();
         List<String> blocked = blockedFoods(UserContext.get());
         LambdaQueryWrapper<Recipe> qw = new LambdaQueryWrapper<Recipe>().eq(Recipe::getStatus, 1);
         if (StringUtils.hasText(keyword)) {
@@ -88,11 +88,15 @@ public class RecipeService {
             throw new BusinessException("请至少选择一道菜谱");
         }
         int servings = req.servings() == null || req.servings() <= 0 ? 1 : req.servings();
-        Map<String, BigDecimal> stock = stockMap();
+        Map<String, List<FoodItem>> stock = stockMap();
         Map<String, IngredientNeed> needMap = new LinkedHashMap<>();
         for (Long recipeId : req.recipeIds()) {
             Recipe recipe = requireRecipe(recipeId);
             for (RecipeIngredient ing : ingredients(recipeId)) {
+                // 调味品视为厨房常备，不参与缺料检查
+                if (ing.getIsCondiment() == 1) {
+                    continue;
+                }
                 BigDecimal qty = ing.getQuantity()
                         .multiply(BigDecimal.valueOf(servings))
                         .divide(BigDecimal.valueOf(recipe.getServings()), 2, RoundingMode.HALF_UP);
@@ -103,7 +107,8 @@ public class RecipeService {
         }
         List<MissingItem> items = new ArrayList<>();
         for (IngredientNeed need : needMap.values()) {
-            BigDecimal have = stock.getOrDefault(normalize(need.name), BigDecimal.ZERO);
+            List<FoodItem> haveItems = stock.getOrDefault(normalize(need.name), List.of());
+            BigDecimal have = haveItems.isEmpty() ? BigDecimal.ZERO : haveItems.get(0).getQuantity();
             BigDecimal missing = need.needed.subtract(have).max(BigDecimal.ZERO);
             if (missing.compareTo(BigDecimal.ZERO) > 0) {
                 items.add(new MissingItem(need.name, need.unit, need.needed, have, missing));
@@ -118,13 +123,18 @@ public class RecipeService {
         if (recipe == null) {
             throw new BusinessException(404, "菜谱不存在");
         }
-        Map<String, BigDecimal> stock = stockMap();
+        Map<String, List<FoodItem>> stock = stockMap();
         RecipeMatchVO match = match(recipe, ingredients(recipeId), stock);
         List<IngredientVO> ingredientVOs = ingredients(recipeId).stream()
                 .map(i -> new IngredientVO(i.getName(), i.getQuantity(), i.getUnit(),
                         i.getIsEssential(), i.getAlternative(), i.getIsCondiment(), i.getIsStaple(),
                         hasStock(stock, i.getName()),
-                        stock.getOrDefault(normalize(i.getName()), BigDecimal.ZERO)))
+                        stock.getOrDefault(normalize(i.getName()), List.of()).isEmpty()
+                                ? BigDecimal.ZERO
+                                : stock.get(normalize(i.getName())).get(0).getQuantity(),
+                        stock.getOrDefault(normalize(i.getName()), List.of()).isEmpty()
+                                ? null
+                                : stock.get(normalize(i.getName())).get(0).getUnit()))
                 .toList();
         List<StepVO> stepVOs = stepMapper.selectList(new LambdaQueryWrapper<RecipeStep>()
                         .eq(RecipeStep::getRecipeId, recipeId)
@@ -139,7 +149,7 @@ public class RecipeService {
                 recipe.getCookTimeMin(), recipe.getDifficulty(), recipe.getServings(),
                 recipe.getPerServingCalorie(), recipe.getDescription(), favorite,
                 match.matchType(), match.matchText(), match.missingNames(), match.missingCondiments(),
-                ingredientVOs, stepVOs);
+                ingredientVOs, stepVOs, recipe.getCreatedBy());
     }
 
     public void favorite(Long recipeId) {
@@ -158,6 +168,28 @@ public class RecipeService {
                 .eq(UserRecipeFavorite::getRecipeId, recipeId));
     }
 
+    /**
+     * 删除菜谱（仅限当前用户自己生成的菜谱，系统内置菜谱不可删除）
+     */
+    public void delete(Long id) {
+        Recipe recipe = recipeMapper.selectById(id);
+        if (recipe == null) {
+            throw new BusinessException(404, "菜谱不存在");
+        }
+        if (recipe.getCreatedBy() == null || !recipe.getCreatedBy().equals(UserContext.get())) {
+            throw new BusinessException(400, "只能删除自己生成的菜谱");
+        }
+        ingredientMapper.delete(new LambdaQueryWrapper<RecipeIngredient>()
+                .eq(RecipeIngredient::getRecipeId, id));
+        stepMapper.delete(new LambdaQueryWrapper<RecipeStep>()
+                .eq(RecipeStep::getRecipeId, id));
+        favoriteMapper.delete(new LambdaQueryWrapper<UserRecipeFavorite>()
+                .eq(UserRecipeFavorite::getRecipeId, id));
+        historyMapper.delete(new LambdaQueryWrapper<RecipeHistory>()
+                .eq(RecipeHistory::getRecipeId, id));
+        recipeMapper.deleteById(id);
+    }
+
     public List<RecipeMatchVO> favorites() {
         List<Long> ids = favoriteMapper.selectList(new LambdaQueryWrapper<UserRecipeFavorite>()
                         .eq(UserRecipeFavorite::getUserId, UserContext.get())
@@ -166,7 +198,7 @@ public class RecipeService {
         if (ids.isEmpty()) {
             return List.of();
         }
-        Map<String, BigDecimal> stock = stockMap();
+        Map<String, List<FoodItem>> stock = stockMap();
         List<String> blocked = blockedFoods(UserContext.get());
         return recipeMapper.selectBatchIds(ids).stream()
                 .filter(r -> ingredients(r.getId()).stream().noneMatch(i -> containsBlocked(i.getName(), blocked)))
@@ -188,66 +220,6 @@ public class RecipeService {
                             h.getServings(), h.getCreatedAt());
                 })
                 .toList();
-    }
-
-    // ---------- 指定生成 ----------
-    @Transactional
-    public RecipeDetailVO generate(GenerateReq req) {
-        if (!StringUtils.hasText(req.name())) {
-            throw new BusinessException("菜谱名称不能为空");
-        }
-        Recipe exist = recipeMapper.selectOne(new LambdaQueryWrapper<Recipe>()
-                .eq(Recipe::getName, req.name().trim())
-                .last("LIMIT 1"));
-        if (exist != null) {
-            history(exist.getId(), "generate", null);
-            return detail(exist.getId());
-        }
-        List<FoodItem> stockItems = foodItemMapper.selectList(new LambdaQueryWrapper<FoodItem>()
-                .eq(FoodItem::getUserId, UserContext.get())
-                .eq(FoodItem::getStatus, "in_stock")
-                .gt(FoodItem::getQuantity, BigDecimal.ZERO)
-                .orderByDesc(FoodItem::getCreatedAt)
-                .last("LIMIT 6"));
-        if (stockItems.isEmpty()) {
-            throw new BusinessException("冰箱里暂时没有食材，请先录入库存");
-        }
-
-        Recipe recipe = new Recipe();
-        recipe.setName(req.name().trim());
-        recipe.setCuisine("家常菜");
-        recipe.setTaste("清淡");
-        recipe.setCookTimeMin(req.cookTimeMin() == null ? 20 : req.cookTimeMin());
-        recipe.setDifficulty("简单");
-        recipe.setServings(req.servings() == null ? 2 : req.servings());
-        recipe.setDescription("根据当前冰箱库存智能生成的菜谱");
-        recipe.setCreatedBy(UserContext.get());
-        recipe.setStatus(1);
-        recipeMapper.insert(recipe);
-
-        BigDecimal calorieSum = BigDecimal.ZERO;
-        int stapleIndex = 0;
-        for (FoodItem item : stockItems) {
-            RecipeIngredient ing = new RecipeIngredient();
-            ing.setRecipeId(recipe.getId());
-            ing.setName(item.getName());
-            ing.setQuantity("count".equals(item.getUnitType()) ? BigDecimal.ONE : new BigDecimal("100"));
-            ing.setUnit(item.getUnit());
-            ing.setIsEssential(1);
-            ing.setIsCondiment(0);
-            ing.setIsStaple(stapleIndex++ == 0 ? 1 : 0);
-            ingredientMapper.insert(ing);
-            if (item.getCategoryId() != null && item.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
-                calorieSum = calorieSum.add(item.getQuantity().multiply(new BigDecimal("50")));
-            }
-        }
-        BigDecimal perServing = calorieSum.divide(new BigDecimal(recipe.getServings()), 1, RoundingMode.HALF_UP);
-        recipe.setPerServingCalorie(perServing);
-        recipeMapper.updateById(recipe);
-
-        insertTemplateSteps(recipe.getId());
-        history(recipe.getId(), "generate", null);
-        return detail(recipe.getId());
     }
 
     // ---------- 用量动态调整 ----------
@@ -334,7 +306,8 @@ public class RecipeService {
     }
 
     // ---------- 内部工具 ----------
-    private RecipeMatchVO match(Recipe r, List<RecipeIngredient> ingredients, Map<String, BigDecimal> stock) {
+    private RecipeMatchVO match(Recipe r, List<RecipeIngredient> ingredients,
+                                Map<String, List<FoodItem>> stock) {
         int total = ingredients.size();
         int available = 0;
         boolean alternativeOk = false;
@@ -378,7 +351,7 @@ public class RecipeService {
                 r.getDescription(), rank, type, text, coverage, missingEssential, missingCondiments);
     }
 
-    private boolean hasAlternative(RecipeIngredient ing, Map<String, BigDecimal> stock) {
+    private boolean hasAlternative(RecipeIngredient ing, Map<String, List<FoodItem>> stock) {
         if (!StringUtils.hasText(ing.getAlternative())) {
             return false;
         }
@@ -403,13 +376,14 @@ public class RecipeService {
         };
     }
 
-    private Map<String, BigDecimal> stockMap() {
-        Map<String, BigDecimal> map = new HashMap<>();
+    private Map<String, List<FoodItem>> stockMap() {
+        Map<String, List<FoodItem>> map = new HashMap<>();
         foodItemMapper.selectList(new LambdaQueryWrapper<FoodItem>()
                         .eq(FoodItem::getUserId, UserContext.get())
                         .eq(FoodItem::getStatus, "in_stock")
                         .gt(FoodItem::getQuantity, BigDecimal.ZERO))
-                .forEach(item -> map.merge(normalize(item.getName()), item.getQuantity(), BigDecimal::add));
+                .forEach(item -> map.computeIfAbsent(normalize(item.getName()), k -> new ArrayList<>())
+                        .add(item));
         return map;
     }
 
@@ -446,8 +420,22 @@ public class RecipeService {
         return false;
     }
 
-    private boolean hasStock(Map<String, BigDecimal> stock, String name) {
-        return stock.getOrDefault(normalize(name), BigDecimal.ZERO).compareTo(BigDecimal.ZERO) > 0;
+    private boolean hasStock(Map<String, List<FoodItem>> stock, String name) {
+        String n = normalize(name);
+        List<FoodItem> exact = stock.get(n);
+        if (exact != null && exact.stream().anyMatch(i -> i.getQuantity().compareTo(BigDecimal.ZERO) > 0)) {
+            return true;
+        }
+        // 模糊匹配：库存名包含食材名（如库存“鸡腿肉”可匹配菜谱里的“鸡腿”）
+        if (n.length() >= 2) {
+            for (Map.Entry<String, List<FoodItem>> entry : stock.entrySet()) {
+                if (entry.getKey().contains(n)
+                        && entry.getValue().stream().anyMatch(i -> i.getQuantity().compareTo(BigDecimal.ZERO) > 0)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String normalize(String name) {
@@ -467,21 +455,6 @@ public class RecipeService {
             throw new BusinessException(404, "菜谱不存在");
         }
         return recipe;
-    }
-
-    private void insertTemplateSteps(Long recipeId) {
-        List<String> steps = List.of(
-                "将食材洗净、切好备用。",
-                "热锅下油，按先难后易的顺序翻炒食材。",
-                "加入适量调味品调味，熟透后装盘即可。");
-        for (int i = 0; i < steps.size(); i++) {
-            RecipeStep step = new RecipeStep();
-            step.setRecipeId(recipeId);
-            step.setStepNo(i + 1);
-            step.setContent(steps.get(i));
-            step.setCookMin(5 + i * 5);
-            stepMapper.insert(step);
-        }
     }
 
     private void history(Long recipeId, String actionType, Integer servings) {
@@ -515,7 +488,7 @@ public class RecipeService {
     public record IngredientVO(
             String name, BigDecimal quantity, String unit,
             Integer isEssential, String alternative, Integer isCondiment, Integer isStaple,
-            boolean available, BigDecimal stockQty) {
+            boolean available, BigDecimal stockQty, String stockUnit) {
     }
 
     public record StepVO(Integer stepNo, String content, Integer cookMin) {
@@ -527,10 +500,7 @@ public class RecipeService {
             BigDecimal perServingCalorie, String description,
             boolean favorite, String matchType, String matchText,
             List<String> missingNames, List<String> missingCondiments,
-            List<IngredientVO> ingredients, List<StepVO> steps) {
-    }
-
-    public record GenerateReq(String name, Integer cookTimeMin, Integer servings) {
+            List<IngredientVO> ingredients, List<StepVO> steps, Long createdBy) {
     }
 
     public record ScaleReq(String mainName, BigDecimal actualQty) {

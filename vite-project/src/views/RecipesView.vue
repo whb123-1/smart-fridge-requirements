@@ -16,7 +16,6 @@
             </el-select>
             <el-button type="primary" @click="load">推荐</el-button>
             <div style="flex: 1"></div>
-            <el-button type="success" @click="genVisible = true">智能生成菜谱</el-button>
             <el-button :type="showFavorites ? 'primary' : 'default'" @click="toggleFavorites">
               我的收藏
             </el-button>
@@ -78,6 +77,50 @@
         </el-card>
       </el-tab-pane>
 
+      <el-tab-pane label="AI 推荐" name="ai">
+        <el-card>
+          <div class="toolbar">
+            <el-input v-model="aiName" placeholder="想做的菜或主料（选填，如：鸡肉）"
+              clearable style="width: 240px" />
+            <el-button type="primary" :loading="aiLoading" @click="fetchAiRecommend">
+              AI 推荐菜谱
+            </el-button>
+            <el-button type="success" :loading="aiGenLoading" @click="aiGenerateNow">
+              AI 生成并保存
+            </el-button>
+          </div>
+          <el-alert style="margin-bottom: 14px" type="info" :closable="false"
+            title="AI 会根据你的冰箱库存和饮食偏好推荐/生成菜谱；生成后会保存到菜谱库。" />
+          <div v-loading="aiLoading" class="ai-list">
+            <el-card v-for="(r, idx) in aiRecs" :key="idx" class="ai-card" shadow="hover">
+              <div class="ai-title">
+                <span>{{ r.name }}</span>
+                <el-tag v-if="r.missing.length === 0" type="success" size="small">库存可做</el-tag>
+                <el-tag v-else type="warning" size="small">缺 {{ r.missing.length }} 样</el-tag>
+              </div>
+              <div class="ai-reason">{{ r.reason }}</div>
+              <div class="ai-meta">
+                约 {{ r.cookTimeMin }} 分钟 · {{ r.perServingCalorie }} 千卡/份
+              </div>
+              <div class="ai-tags">
+                <el-tag v-for="ing in r.ingredients" :key="ing" size="small" type="info"
+                  effect="plain">{{ ing }}</el-tag>
+                <el-tag v-for="m in r.missing" :key="m" size="small" type="danger" effect="plain">
+                  缺:{{ m }}
+                </el-tag>
+              </div>
+              <div class="ai-actions">
+                <el-button size="small" type="primary" @click="generateFromAi(r.name)">
+                  生成并保存
+                </el-button>
+              </div>
+            </el-card>
+          </div>
+          <el-empty v-if="!aiLoading && aiSearched && aiRecs.length === 0"
+            description="点上方按钮获取 AI 推荐" :image-size="60" />
+        </el-card>
+      </el-tab-pane>
+
       <el-tab-pane label="偏好设置" name="pref">
         <el-card style="max-width: 720px">
           <el-form :model="prefForm" label-width="120px" v-loading="prefLoading">
@@ -110,24 +153,6 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="genVisible" title="根据冰箱库存生成菜谱" width="460px">
-      <el-form :model="genForm" label-width="100px">
-        <el-form-item label="菜名" required>
-          <el-input v-model="genForm.name" placeholder="如：番茄牛腩" />
-        </el-form-item>
-        <el-form-item label="预计时间">
-          <el-input-number v-model="genForm.cookTimeMin" :min="1" :max="300" />
-        </el-form-item>
-        <el-form-item label="份数">
-          <el-input-number v-model="genForm.servings" :min="1" :max="20" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="genVisible = false">取消</el-button>
-        <el-button type="primary" :loading="generating" @click="onGenerate">生成</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="showHistory" title="菜谱历史" width="640px">
       <el-table :data="history" border size="small" max-height="480">
         <el-table-column prop="recipeName" label="菜谱" />
@@ -146,7 +171,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowDown, WarningFilled } from '@element-plus/icons-vue'
 import { getPreference, updatePreference } from '../api/preference'
 import {
-  favoriteList, generateRecipe, historyList, recommendRecipes,
+  aiGenerate, aiRecommend, favoriteList, historyList, recommendRecipes,
 } from '../api/recipe'
 import { useMissingShoppingStore } from '../stores/missingShopping'
 
@@ -155,19 +180,21 @@ const missingStore = useMissingShoppingStore()
 const recipeTab = ref('list')
 const missingOpen = ref(true)
 const loading = ref(false)
-const generating = ref(false)
 const list = ref<any[]>([])
 const history = ref<any[]>([])
-const genVisible = ref(false)
 const showHistory = ref(false)
 const showFavorites = ref(false)
+const aiName = ref('')
+const aiRecs = ref<any[]>([])
+const aiLoading = ref(false)
+const aiGenLoading = ref(false)
+const aiSearched = ref(false)
 const tastes = ['清淡', '微辣', '少油', '低盐', '咸鲜', '甜口']
 const dietGoals = ['均衡', '减脂', '增肌', '控制热量']
 const query = reactive({
   keyword: '', taste: '', cookTimeMax: undefined as number | undefined,
   dietGoal: '',
 })
-const genForm = reactive({ name: '', cookTimeMin: 20, servings: 2 })
 
 // 偏好设置
 const prefLoading = ref(false)
@@ -238,21 +265,6 @@ const matchTag = (type: string) => {
   return map[type] || 'info'
 }
 
-const onGenerate = async () => {
-  if (!genForm.name) {
-    ElMessage.warning('请输入菜名')
-    return
-  }
-  generating.value = true
-  try {
-    const detail = await generateRecipe({ ...genForm })
-    genVisible.value = false
-    router.push(`/recipes/${detail.id}`)
-  } finally {
-    generating.value = false
-  }
-}
-
 const openHistory = async () => {
   history.value = await historyList()
   showHistory.value = true
@@ -270,6 +282,36 @@ const toggleFavorites = async () => {
     }
   } else {
     load()
+  }
+}
+
+const fetchAiRecommend = async () => {
+  aiLoading.value = true
+  try {
+    aiRecs.value = await aiRecommend({ name: aiName.value || undefined })
+    aiSearched.value = true
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+const aiGenerateNow = async () => {
+  aiGenLoading.value = true
+  try {
+    const detail = await aiGenerate({ name: aiName.value || undefined })
+    router.push(`/recipes/${detail.id}`)
+  } finally {
+    aiGenLoading.value = false
+  }
+}
+
+const generateFromAi = async (name: string) => {
+  aiGenLoading.value = true
+  try {
+    const detail = await aiGenerate({ name })
+    router.push(`/recipes/${detail.id}`)
+  } finally {
+    aiGenLoading.value = false
   }
 }
 
@@ -334,6 +376,37 @@ onMounted(() => {
   font-weight: 600;
 }
 .missing-actions {
+  margin-top: 10px;
+  text-align: right;
+}
+.ai-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.ai-card .ai-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 15px;
+}
+.ai-reason {
+  color: #606266;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.ai-meta {
+  color: #909399;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ai-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-actions {
   margin-top: 10px;
   text-align: right;
 }

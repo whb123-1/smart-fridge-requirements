@@ -5,6 +5,9 @@
         <h2>{{ detail.name }}</h2>
         <div>
           <el-tag :type="matchTag(detail.matchType)" style="margin-right: 8px">{{ detail.matchText }}</el-tag>
+          <el-button v-if="detail.createdBy != null" type="danger" plain
+            @click="onDelete">删除菜谱</el-button>
+          <el-button plain @click="router.push('/recipes')">退出</el-button>
           <el-button :type="detail.favorite ? 'warning' : 'default'"
             @click="toggleFavorite">{{ detail.favorite ? '已收藏' : '收藏' }}</el-button>
         </div>
@@ -37,8 +40,9 @@
             </el-table-column>
             <el-table-column label="库存" width="90">
               <template #default="{ row }">
-                <el-tag :type="row.available ? 'success' : 'danger'" size="small">
-                  {{ row.available ? (row.stockQty + ' ' + row.unit) : '缺' }}
+                <el-tag v-if="row.isCondiment === 1" type="info" size="small">厨房常备</el-tag>
+                <el-tag v-else :type="row.available ? 'success' : 'danger'" size="small">
+                  {{ row.available ? (row.stockQty + ' ' + (row.stockUnit || row.unit)) : '缺' }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -110,13 +114,14 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  cookRecipe, favoriteRecipe, recipeDetail, scaleRecipe, unfavoriteRecipe,
+  cookRecipe, deleteRecipe, favoriteRecipe, recipeDetail, scaleRecipe, unfavoriteRecipe,
 } from '../api/recipe'
 
 const route = useRoute()
+const router = useRouter()
 const detail = ref<any>(null)
 const loading = ref(false)
 const scaleVisible = ref(false)
@@ -154,6 +159,15 @@ const toggleFavorite = async () => {
     detail.value.favorite = true
     ElMessage.success('已收藏')
   }
+}
+
+const onDelete = async () => {
+  await ElMessageBox.confirm(`确认删除菜谱「${detail.value.name}」？删除后不可恢复。`, '提示', {
+    type: 'warning',
+  })
+  await deleteRecipe(detail.value.id)
+  ElMessage.success('已删除')
+  router.push('/recipes')
 }
 
 const openScale = () => {

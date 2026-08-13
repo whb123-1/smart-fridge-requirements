@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -100,6 +101,7 @@ public class FoodService {
                 : (cat != null ? cat.getDefaultUnit() : "个"));
         item.setUnitType(StringUtils.hasText(req.unitType()) ? req.unitType()
                 : (cat != null ? cat.getUnitType() : "count"));
+        validateUnit(item.getUnit(), item.getUnitType());
         item.setStatus("in_stock");
         item.setEntryDate(req.entryDate() == null ? LocalDate.now() : req.entryDate());
         item.setOpenedDate(req.openedDate());
@@ -121,6 +123,7 @@ public class FoodService {
         item.setQuantity(req.quantity() == null ? item.getQuantity() : req.quantity());
         item.setUnit(StringUtils.hasText(req.unit()) ? req.unit() : item.getUnit());
         item.setUnitType(StringUtils.hasText(req.unitType()) ? req.unitType() : item.getUnitType());
+        validateUnit(item.getUnit(), item.getUnitType());
         item.setEntryDate(req.entryDate() == null ? item.getEntryDate() : req.entryDate());
         item.setOpenedDate(req.openedDate());
         item.setPackageExpiryDate(req.packageExpiryDate());
@@ -235,6 +238,33 @@ public class FoodService {
                     .last("LIMIT 1"));
         }
         return null;
+    }
+
+    private static final Set<String> WEIGHT_UNITS = Set.of(
+            "克", "千克", "斤", "公斤", "块", "片", "条", "袋", "包");
+    private static final Set<String> VOLUME_UNITS = Set.of(
+            "毫升", "升", "瓶", "盒", "杯", "袋", "包");
+    private static final Set<String> COUNT_UNITS = Set.of(
+            "个", "根", "只", "块", "包", "盒", "袋", "瓶", "把", "头", "条");
+
+    private void validateUnit(String unit, String unitType) {
+        if (unit == null || unitType == null) {
+            return;
+        }
+        boolean ok = switch (unitType) {
+            case "weight" -> WEIGHT_UNITS.contains(unit);
+            case "volume" -> VOLUME_UNITS.contains(unit);
+            case "count" -> COUNT_UNITS.contains(unit);
+            default -> true;
+        };
+        if (!ok) {
+            String hint = switch (unitType) {
+                case "weight" -> "该食材应按重量计量（克/千克/斤等）";
+                case "volume" -> "该食材应按容量计量（毫升/升/瓶等）";
+                default -> "该食材应按数量计量（个/根/只等）";
+            };
+            throw new BusinessException("计量单位「" + unit + "」不适用：" + hint);
+        }
     }
 
     private FoodItem owned(Long id) {

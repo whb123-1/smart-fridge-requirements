@@ -1,6 +1,7 @@
 package com.smartfridge.module.recipe.controller;
 
 import com.smartfridge.common.Result;
+import com.smartfridge.module.recipe.service.AiRecipeService;
 import com.smartfridge.module.recipe.service.RecipeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,6 +21,7 @@ import java.util.List;
 public class RecipeController {
 
     private final RecipeService recipeService;
+    private final AiRecipeService aiRecipeService;
 
     @GetMapping("/recommend")
     public Result<List<RecipeService.RecipeMatchVO>> recommend(
@@ -35,15 +37,21 @@ public class RecipeController {
         return Result.ok(recipeService.detail(id));
     }
 
-    @PostMapping("/generate")
-    public Result<RecipeService.RecipeDetailVO> generate(@RequestBody RecipeService.GenerateReq req) {
-        return Result.ok(recipeService.generate(req));
-    }
-
     @PostMapping("/check-selected")
     public Result<RecipeService.CheckResult> checkSelected(
             @RequestBody RecipeService.CheckReq req) {
         return Result.ok(recipeService.checkSelected(req));
+    }
+
+    @PostMapping("/ai-recommend")
+    public Result<List<AiRecipeService.AiRecommendVO>> aiRecommend(
+            @RequestBody(required = false) AiRecommendReq req) {
+        return Result.ok(aiRecipeService.recommend(req == null ? null : req.name()));
+    }
+
+    @PostMapping("/ai-generate")
+    public Result<RecipeService.RecipeDetailVO> aiGenerate(@RequestBody AiGenerateReq req) {
+        return Result.ok(aiRecipeService.generate(req.name()));
     }
 
     @PostMapping("/{id}/favorite")
@@ -55,6 +63,12 @@ public class RecipeController {
     @DeleteMapping("/{id}/favorite")
     public Result<Void> unfavorite(@PathVariable Long id) {
         recipeService.unfavorite(id);
+        return Result.ok();
+    }
+
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable Long id) {
+        recipeService.delete(id);
         return Result.ok();
     }
 
@@ -78,5 +92,11 @@ public class RecipeController {
     public Result<List<RecipeService.CookResultVO>> cook(@PathVariable Long id,
                                                          @RequestBody RecipeService.CookReq req) {
         return Result.ok(recipeService.cook(id, req));
+    }
+
+    public record AiGenerateReq(String name) {
+    }
+
+    public record AiRecommendReq(String name) {
     }
 }

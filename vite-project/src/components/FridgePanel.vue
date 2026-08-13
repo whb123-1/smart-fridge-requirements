@@ -201,7 +201,7 @@
     <el-dialog v-model="foodDialogVisible" title="添加食材" width="460px" class="pixel-dialog">
       <el-form :model="foodForm" label-width="100px">
         <el-form-item label="名称" required>
-          <el-input v-model="foodForm.name" placeholder="如：鸡蛋" />
+          <el-input v-model="foodForm.name" placeholder="如：鸡蛋" @input="onNameInput" />
         </el-form-item>
         <el-form-item label="图片预览">
           <div class="food-preview">
@@ -220,7 +220,7 @@
         </el-form-item>
         <el-form-item label="单位">
           <el-select v-model="foodForm.unit" allow-create filterable style="width: 100%">
-            <el-option v-for="u in units" :key="u" :label="u" :value="u" />
+            <el-option v-for="u in compatibleUnits" :key="u" :label="u" :value="u" />
           </el-select>
         </el-form-item>
         <el-form-item label="开封日期">
@@ -252,6 +252,7 @@ import {
 } from '../api/food'
 import { createZone, deleteZone, recordZone, updateZone } from '../api/zone'
 import { findFoodImage } from '../utils/foodImages'
+import { inferFoodUnit, isUnitCompatible, UNIT_OPTIONS } from '../utils/foodUnit'
 
 const props = defineProps<{
   type: string
@@ -270,7 +271,6 @@ const emit = defineEmits<{
 
 const tab = ref('inner')
 const zoneTypes = ['冷藏区', '冷冻区', '保鲜区', '变温区', '常温区', '自定义']
-const units = ['个', '克', '千克', '毫升', '瓶', '包', '盒', '袋', '根', '勺', '份']
 const categories = ref<any[]>([])
 const zoneDefaults: Record<string, [number, number]> = {
   冷藏区: [0, 8], 冷冻区: [-18, -12], 保鲜区: [0, 4], 变温区: [-3, 4], 常温区: [10, 25], 自定义: [0, 10],
@@ -427,29 +427,55 @@ const saveRecord = async () => {
 
 // ---------- 库存 ----------
 const foodDialogVisible = ref(false)
+const unitTouched = ref(false)
 const foodForm = reactive({
-  name: '', categoryId: undefined as number | undefined, quantity: 1, unit: '个',
+  name: '', categoryId: undefined as number | undefined, quantity: 1, unit: '个', unitType: 'count',
   openedDate: '', packageExpiryDate: '', lowStockThreshold: undefined as number | undefined,
 })
 
+const compatibleUnits = computed(() => UNIT_OPTIONS[foodForm.unitType] || UNIT_OPTIONS.count)
+
 const openAddFood = () => {
+  unitTouched.value = false
   Object.assign(foodForm, {
-    name: '', categoryId: undefined, quantity: 1, unit: '个',
+    name: '', categoryId: undefined, quantity: 1, unit: '个', unitType: 'count',
     openedDate: '', packageExpiryDate: '', lowStockThreshold: undefined,
   })
   foodDialogVisible.value = true
 }
 
 const onCategoryChange = (id: number) => {
+  unitTouched.value = true
   const cat = categories.value.find((c) => c.id === id)
-  if (cat && cat.defaultUnit) {
-    foodForm.unit = cat.defaultUnit
+  if (cat) {
+    if (cat.defaultUnit) {
+      foodForm.unit = cat.defaultUnit
+    }
+    if (cat.unitType) {
+      foodForm.unitType = cat.unitType
+    }
   }
+  if (!isUnitCompatible(foodForm.unit, foodForm.unitType)) {
+    foodForm.unit = UNIT_OPTIONS[foodForm.unitType][0]
+  }
+}
+
+const onNameInput = () => {
+  if (unitTouched.value) {
+    return
+  }
+  const guess = inferFoodUnit(foodForm.name)
+  foodForm.unit = guess.unit
+  foodForm.unitType = guess.unitType
 }
 
 const saveFood = async () => {
   if (!foodForm.name || !selectedZone.value) {
     ElMessage.warning('请填写食材名称')
+    return
+  }
+  if (!isUnitCompatible(foodForm.unit, foodForm.unitType)) {
+    ElMessage.warning(`计量单位「${foodForm.unit}」不适用于「${foodForm.name}」，请选择「${UNIT_OPTIONS[foodForm.unitType].join('/')}」`)
     return
   }
   await addFood({

@@ -76,7 +76,7 @@
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="名称" required>
-              <el-input v-model="form.name" placeholder="如：鸡蛋" />
+              <el-input v-model="form.name" placeholder="如：鸡蛋" @input="onNameInput" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -96,7 +96,7 @@
             <el-form-item label="计量单位">
               <el-select v-model="form.unit" allow-create filterable style="width: 100%"
                 @change="onUnitChange">
-                <el-option v-for="u in units" :key="u" :label="u" :value="u" />
+                <el-option v-for="u in compatibleUnits" :key="u" :label="u" :value="u" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -155,13 +155,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   addFood, consumeFood, deleteFood, discardFood, expireFood, listCategories,
   listEstimates, listFoods, updateFood,
 } from '../api/food'
 import { listZones } from '../api/zone'
+import { inferFoodUnit, isUnitCompatible, UNIT_OPTIONS } from '../utils/foodUnit'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -173,6 +174,7 @@ const estimates = ref<any[]>([])
 const dialogVisible = ref(false)
 const estimatesVisible = ref(false)
 const editing = ref<any>(null)
+const unitTouched = ref(false)
 const query = reactive({
   page: 1, size: 10, keyword: '', itemType: '', zoneId: undefined as number | undefined, status: '',
 })
@@ -181,7 +183,7 @@ const form = reactive({
   quantity: 1, unit: '个', unitType: 'count', entryDate: '', openedDate: '',
   packageExpiryDate: '', lowStockThreshold: undefined as number | undefined, note: '',
 })
-const units = ['个', '克', '千克', '毫升', '瓶', '包', '盒', '袋', '根', '勺', '份']
+const compatibleUnits = computed(() => UNIT_OPTIONS[form.unitType] || UNIT_OPTIONS.count)
 
 const load = async () => {
   loading.value = true
@@ -209,6 +211,7 @@ const reset = () => {
 
 const resetForm = () => {
   editing.value = null
+  unitTouched.value = false
   Object.assign(form, {
     name: '', categoryId: undefined, zoneId: undefined, quantity: 1, unit: '个',
     unitType: 'count', entryDate: '', openedDate: '', packageExpiryDate: '',
@@ -223,6 +226,7 @@ const openAdd = () => {
 
 const openEdit = (row: any) => {
   editing.value = row
+  unitTouched.value = true
   Object.assign(form, {
     name: row.name, categoryId: row.categoryId, zoneId: row.zoneId, quantity: Number(row.quantity),
     unit: row.unit, unitType: row.unitType, entryDate: row.entryDate, openedDate: row.openedDate,
@@ -232,26 +236,41 @@ const openEdit = (row: any) => {
 }
 
 const onCategoryChange = (id: number) => {
+  unitTouched.value = true
   const cat = categories.value.find((c) => c.id === id)
-  if (cat && cat.defaultUnit) {
-    form.unit = cat.defaultUnit
-    form.unitType = cat.unitType
+  if (cat) {
+    if (cat.defaultUnit) {
+      form.unit = cat.defaultUnit
+    }
+    if (cat.unitType) {
+      form.unitType = cat.unitType
+    }
+  }
+  if (!isUnitCompatible(form.unit, form.unitType)) {
+    form.unit = UNIT_OPTIONS[form.unitType][0]
   }
 }
 
-const onUnitChange = (unit: string) => {
-  if (['克', '千克'].includes(unit)) {
-    form.unitType = 'weight'
-  } else if (unit === '毫升') {
-    form.unitType = 'volume'
-  } else {
-    form.unitType = 'count'
+const onUnitChange = () => {
+  unitTouched.value = true
+}
+
+const onNameInput = () => {
+  if (unitTouched.value) {
+    return
   }
+  const guess = inferFoodUnit(form.name)
+  form.unit = guess.unit
+  form.unitType = guess.unitType
 }
 
 const submit = async () => {
   if (!form.name || !form.quantity) {
     ElMessage.warning('请填写名称和数量')
+    return
+  }
+  if (!isUnitCompatible(form.unit, form.unitType)) {
+    ElMessage.warning(`计量单位「${form.unit}」不适用于「${form.name}」，请选择「${UNIT_OPTIONS[form.unitType].join('/')}」`)
     return
   }
   saving.value = true
