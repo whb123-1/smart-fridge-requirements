@@ -1,0 +1,38 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+  background: #f5f7fa;
+  color: #303133;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.page {
+  padding: 16px;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  text-align: center;
+}
+
+.stat-card .num {
+  font-size: 28px;
+  font-weight: 600;
+  color: #409eff;
+}
