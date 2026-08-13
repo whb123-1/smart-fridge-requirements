@@ -2,11 +2,12 @@
 import { computed, reactive, ref } from 'vue'
 import { api } from './services/api'
 import pixelPet from './assets/xianling-pixel-pet-transparent.png'
+import FridgeModel from './components/FridgeModel.vue'
 
 const page = ref('home')
 const unit = ref('C')
 const inventoryFilter = ref('全部')
-const inventoryType = ref('食材')
+const inventoryType = ref('全部')
 const showAdd = ref(false)
 const showLogin = ref(false)
 const showProfile = ref(false)
@@ -63,7 +64,7 @@ const newFood = reactive({ name: '', category: '蔬菜', amount: '', unit: '克'
 
 const alerts = computed(() => foods.filter(f => f.days <= 3))
 const filteredFoods = computed(() => foods.filter(f => {
-  const typeOkay = inventoryType.value === '食材' ? !['零食', '饮料'].includes(f.category) : ['零食', '饮料'].includes(f.category)
+  const typeOkay = inventoryType.value === '全部' || (inventoryType.value === '食材' ? !['零食', '饮料'].includes(f.category) : ['零食', '饮料'].includes(f.category))
   const zoneOkay = inventoryFilter.value === '全部' || f.zone === inventoryFilter.value
   const queryOkay = !search.value || f.name.includes(search.value)
   return typeOkay && zoneOkay && queryOkay
@@ -114,6 +115,12 @@ function toggleTaste(taste) {
   const i = preferences.tastes.indexOf(taste)
   i >= 0 ? preferences.tastes.splice(i, 1) : preferences.tastes.push(taste)
 }
+function navigateToZone(zone) {
+  inventoryFilter.value = zone.name
+  inventoryType.value = '全部'
+  search.value = ''
+  page.value = 'inventory'
+}
 function getAssistantReply(question) {
   const text = question.toLowerCase()
   if (/菜谱|做什么|推荐|吃什么/.test(text)) return `你可以在“菜谱”板块查看库存匹配的推荐。当前优先推荐${recipes[0].name}，预计 ${recipes[0].time} 分钟，${recipes[0].kcal} 千卡。`
@@ -136,10 +143,6 @@ function sendAssistantMessage(preset = '') {
 <template>
   <div class="app-shell" :class="{ 'home-shell': page === 'home', 'assistant-open': showAssistant }">
     <aside v-if="false" class="sidebar">
-      <button class="brand" @click="page = 'home'" aria-label="鲜知首页">
-        <span class="brand-mark"><i></i><i></i><i></i></span>
-        <span><b>鲜知</b><small>智能冰箱管家</small></span>
-      </button>
       <nav aria-label="主导航">
         <button v-for="item in nav" :key="item[0]" :class="{ active: page === item[0] }" @click="page = item[0]">
           <span v-html="icon(item[2])"></span><span>{{ item[1] }}</span>
@@ -173,8 +176,7 @@ function sendAssistantMessage(preset = '') {
           <section class="home-console" aria-label="冰箱总览">
             <div class="home-organic organic-left" aria-hidden="true"></div>
             <div class="home-organic organic-right" aria-hidden="true"></div>
-            <div class="orbit-status orbit-panel">
-              <span class="home-console-brand"><b>鲜知</b><small>智能冰箱管家</small></span>
+            <div class="orbit-status orbit-panel orbit-status-end">
               <div><span><i class="online-dot"></i>4 个传感器在线</span><span>刚刚同步</span><span class="unit-switch home-unit"><button :class="{on:unit==='C'}" @click="unit='C'">℃</button><button :class="{on:unit==='F'}" @click="unit='F'">℉</button></span></div>
             </div>
 
@@ -192,17 +194,7 @@ function sendAssistantMessage(preset = '') {
             </div>
 
             <article class="center-fridge" aria-label="冰箱分区状态">
-              <div class="fridge-crown"><span></span><b>鲜知</b><i></i></div>
-              <div class="fridge-shell">
-                <button v-for="(zone, i) in zones" :key="zone.id" class="fridge-zone" :class="['flat-zone-'+i, zone.state]" @click="page='settings'">
-                  <span class="flat-zone-name"><i></i>{{ zone.name }}<small>{{ zone.items }} 件</small></span>
-                  <strong v-if="i === 0">{{ temp(zone.temp) }}<em>{{ tempSymbol }}</em></strong>
-                  <span v-else class="flat-zone-temp">{{ temp(zone.temp) }}{{ tempSymbol }}</span>
-                  <span class="flat-zone-meta" v-if="i === 0">湿度 {{ zone.humidity }}%</span>
-                  <span class="flat-zone-meta warning-copy" v-if="zone.state === 'warning'">高于建议 1.2°C</span>
-                </button>
-              </div>
-              <div class="fridge-feet"><i></i><i></i></div>
+              <FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" />
             </article>
 
             <div class="orbit-actions orbit-actions-right orbit-panel" aria-label="管理操作">
@@ -224,7 +216,7 @@ function sendAssistantMessage(preset = '') {
         <!-- 库存 -->
         <template v-else-if="page === 'inventory'">
           <section class="page-intro"><div><p class="eyebrow">共 45 件</p><h1>冰箱库存</h1><p>按新鲜程度排好顺序，决定先吃什么。</p></div><div class="intro-actions"><button class="secondary-btn" @click="isListening=!isListening"><span v-html="icon('mic',18)"></span>语音添加</button><button class="primary-btn" @click="showAdd=true"><span v-html="icon('plus',18)"></span>添加食材</button></div></section>
-          <div class="tabs"><button v-for="t in ['食材','零食饮料']" :class="{active:inventoryType===t}" @click="inventoryType=t">{{t}}</button></div>
+          <div class="tabs"><button v-for="t in ['全部','食材','零食饮料']" :class="{active:inventoryType===t}" @click="inventoryType=t">{{t}}</button></div>
           <section class="inventory-toolbar"><div class="filter-pills"><button v-for="f in ['全部','冷藏区','保鲜抽屉','变温区','冷冻区']" :class="{active:inventoryFilter===f}" @click="inventoryFilter=f">{{f}}</button></div><label class="mini-search"><span v-html="icon('search',16)"></span><input v-model="search" placeholder="搜索库存" /></label></section>
           <section class="inventory-table">
             <div class="table-head"><span>食材</span><span>存放位置</span><span>剩余数量</span><span>新鲜度 / 建议期限</span><span>热量</span><span></span></div>
