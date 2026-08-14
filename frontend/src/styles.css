@@ -567,3 +567,20 @@ body,button,input,select,textarea{letter-spacing:0}
   .fridge-model-status b{font-size:var(--text-secondary)}
   .fridge-model-status button{padding-inline:7px}
 }
+
+/* The fourth home action completes the right rail and aligns it with the alert rail. */
+.fridge-control.tone-synthesis{--door-accent:#e69555;--door-accent-rgb:230,149,85}
+@media (min-width:1101px){
+  .orbit-left,.orbit-right-rail{min-height:458px}
+  .orbit-left .home-task-grid{grid-template-rows:repeat(3,104px)}
+  .orbit-right-rail .home-task-grid{grid-template-rows:repeat(4,104px)}
+  .home-warning{min-height:104px;margin-top:14px}
+}
+@media (max-width:1100px) and (min-width:761px){
+  .orbit-left,.orbit-right-rail{min-height:410px}
+  .orbit-left .home-task-grid{grid-template-rows:repeat(3,92px)}
+  .orbit-right-rail .home-task-grid{grid-template-rows:repeat(4,92px)}
+  .home-warning{min-height:92px;grid-template-columns:30px minmax(0,1fr);gap:8px;margin-top:14px;padding:10px}
+  .home-warning>span:first-child{width:30px;height:30px}
+  .home-warning b{margin-block:2px;font-size:var(--text-secondary)}
+}

@@ -5,6 +5,7 @@ import pixelPet from './assets/xianling-pixel-pet-transparent.png'
 import FridgeModel from './components/FridgeModel.vue'
 import AssistantPet from './components/AssistantPet.vue'
 import NameSuggestionInput from './components/NameSuggestionInput.vue'
+import DeliciousSynthesis from './components/DeliciousSynthesis.vue'
 
 const page = ref('home')
 const unit = ref('C')
@@ -143,7 +144,7 @@ const scaledIngredients = computed(() => {
   return cookingRecipe.value.ingredients.map(item => ({ ...item, display: ['盒', '杯', '个'].includes(item.unit) ? Math.max(1, Math.round(item.amount * scale)) : Math.round(item.amount * scale) }))
 })
 const scaledKcal = computed(() => cookingRecipe.value ? Math.round(cookingRecipe.value.kcal * Number(cookingWeight.value || 0) / cookingRecipe.value.base) : 0)
-const assistantPageName = computed(() => ({ home: '首页', inventory: '库存', expiry: '保质期', recipes: '菜谱生成', cooking: '做菜', diet: '饮食健康', shopping: '采购', settings: '设置', environment: '环境提醒' })[page.value])
+const assistantPageName = computed(() => ({ home: '首页', inventory: '库存', expiry: '保质期', recipes: '菜谱生成', synthesis: '美味合成', cooking: '做菜', diet: '饮食健康', shopping: '采购', settings: '设置', environment: '环境提醒' })[page.value])
 
 const categoryIcons = Object.freeze({ 蔬菜: '🥬', 水果: '🍎', 水产: '🐟', 豆制品: '◻️', 零食: '🍪', 饮料: '🥛', 调味品: '🍶' })
 
@@ -343,6 +344,7 @@ function navigateToZone(zone) { inventoryFilter.value = zone.name; inventoryType
 
 async function assistantRoute(question) {
   const text = question.toLowerCase()
+  if (/合成|配菜|食材组合/.test(text)) { go('synthesis'); return '已打开美味合成，把想用的食材放入合成区即可匹配菜谱。' }
   if (/菜谱|做什么|推荐|吃什么|生成|想吃|想做/.test(text)) { await generateRecipes(question); go('recipes'); return `已生成 ${generatedRecipes.value.length} 张候选菜谱，勾选后即可保存。` }
   if (/过期|保质|保鲜/.test(text)) { go('expiry'); return `已打开保质期模块。现在有 ${alerts.value.length} 项食材建议优先处理。` }
   if (/饮食|健康|热量|卡路里/.test(text)) { go('diet'); return `已打开饮食健康。今日已记录 ${totalCalories.value} 千卡。` }
@@ -373,7 +375,7 @@ async function sendAssistantMessage(preset = '') {
             <div class="orbit-status orbit-panel orbit-status-end"><div><span><i class="online-dot"></i>{{ zones.reduce((sum, zone) => sum + zone.sensors.length, 0) }} 个传感器在线</span><span>刚刚同步</span><span class="unit-switch home-unit"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></div>
             <div class="orbit-left orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-chill" @click="go('inventory')"><span v-html="icon('box', 21)"></span><b>库存</b><small>{{ foods.length }} 项在库</small></button><button class="home-task fridge-control tone-freeze" @click="go('expiry')"><span v-html="icon('clock', 21)"></span><b>保质期</b><small>{{ alerts.length }} 项待处理</small></button><button class="home-task fridge-control tone-fresh" @click="go('recipes')"><span v-html="icon('book', 21)"></span><b>菜谱</b><small>{{ recipes.length }} 道已保存</small></button></div><button v-if="warningZones.length" class="home-warning" @click="go('environment')"><span v-html="icon('alert', 18)"></span><span><small>分区温度异常</small><b>{{ warningZones.length }} 个分区需要检查</b><em>查看全部环境提醒</em></span></button></div>
             <article class="center-fridge" aria-label="冰箱分区状态"><FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" /></article>
-            <div class="orbit-right-rail orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button></div></div>
+            <div class="orbit-right-rail orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button><button class="home-task fridge-control tone-synthesis" @click="go('synthesis')"><span v-html="icon('pan', 21)"></span><b>美味合成</b><small>拖食材配菜谱</small></button></div></div>
           </section>
         </template>
 
@@ -393,6 +395,10 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-else-if="page === 'expiry'">
           <section class="page-intro"><div><p class="eyebrow">AI 保鲜管理</p><h1>保质期提醒</h1><p>按紧急程度排序；环境异常时会缩短建议食用期限。</p></div><button class="primary-btn" @click="go('inventory')">查看全部库存</button></section><section class="expiry-summary"><article><span class="status-dot urgent"></span><strong>{{ foods.filter(food => food.status === 'urgent').length }}</strong><small>今天优先处理</small></article><article><span class="status-dot soon"></span><strong>{{ foods.filter(food => food.status === 'soon').length }}</strong><small>3 天内到期</small></article><article><span class="status-dot fresh"></span><strong>{{ foods.filter(food => food.status === 'fresh').length }}</strong><small>保存良好</small></article></section><div class="filter-pills expiry-filters"><button v-for="filter in [['全部', '全部'], ['紧急', 'urgent'], ['即将到期', 'soon'], ['良好', 'fresh']]" :key="filter[1]" :class="{ active: expiryFilter === filter[1] }" @click="expiryFilter = filter[1]">{{ filter[0] }}</button></div><section class="expiry-list"><article v-for="food in expiryFoods" :key="food.id" :class="food.status"><i>{{ food.icon }}</i><div><b>{{ food.name }}</b><small>入库 {{ food.received }} · 预计到期 {{ dateAfter(food.days) }} · {{ food.zone }}</small><em>{{ food.source }}</em></div><strong>{{ food.days === 0 ? '今天处理' : `${food.days} 天内` }}</strong><label>提醒日期<input v-model="food.reminder" type="date" /></label><button title="删除食材" @click="deleteFood(food)"><span v-html="icon('trash', 17)"></span></button></article></section>
+        </template>
+
+        <template v-else-if="page === 'synthesis'">
+          <DeliciousSynthesis :foods="foods" :preferences="preferences" @start-cooking="openCooking" />
         </template>
 
         <template v-else-if="page === 'recipes'">
