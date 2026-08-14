@@ -356,3 +356,201 @@ button:disabled{cursor:not-allowed;opacity:.58;box-shadow:none}
 .app-shell>.ai-pet.open .ai-pet-trigger{visibility:visible!important}
 @media (max-width:760px){.app-shell>.ai-pet{position:fixed!important;width:80px;height:91px}.app-shell>.ai-pet .ai-pet-trigger{width:80px;height:91px}.app-shell>.ai-pet .ai-pet-face{width:80px;height:91px}.app-shell>.ai-pet .ai-pet-panel{width:min(356px,calc(100vw - 24px))!important}}
 @media (prefers-reduced-motion:reduce){.app-shell>.ai-pet .ai-pet-panel{animation:none}.app-shell>.ai-pet .ai-pet-trigger,.app-shell>.ai-pet .ai-pet-face{transition:none!important;animation:none!important}}
+
+/* Readability pass: keep the appliance character while using a comfortable UI type scale. */
+:root{
+  --text-caption:12px;
+  --text-secondary:13px;
+  --text-body:14px;
+  --text-control:14px;
+  --text-card-title:15px;
+  --text-section:20px;
+}
+
+body,button,input,select,textarea{letter-spacing:0}
+.content:not(.home-content){font-size:var(--text-body);line-height:1.55}
+.content:not(.home-content) small{font-size:var(--text-caption);line-height:1.5}
+.content:not(.home-content) p:not(.eyebrow){font-size:var(--text-body);line-height:1.7}
+.eyebrow{font-size:var(--text-caption);line-height:1.45}
+.page-intro>div>p:last-child{font-size:var(--text-body);line-height:1.7}
+.page-home-link{height:44px!important;font-size:var(--text-secondary)}
+.page-home-link>span:last-child{font-size:var(--text-secondary)!important}
+.primary-btn,.secondary-btn,.danger-btn,.logout-btn{min-height:44px;font-size:var(--text-control)}
+.tabs button{min-height:44px;font-size:var(--text-control)}
+.filter-pills button{height:36px;padding-inline:15px;font-size:var(--text-caption)}
+.mini-search{min-height:42px}.mini-search input{font-size:var(--text-body)}
+.card-title>button,.section-head>button,.text-btn,.zone-setting>button{font-size:var(--text-secondary)}
+.section-head>span{font-size:var(--text-caption);line-height:1.5}
+
+/* Dense tables and repeated records. */
+.table-head{height:50px;font-size:var(--text-caption)}
+.food-row{min-height:84px;gap:16px;padding-inline:22px}
+.food-row>span>b{font-size:var(--text-body)}
+.food-row>span>small{font-size:var(--text-caption);line-height:1.45}
+.food-name>i{width:44px;height:44px;font-size:22px}
+.quantity-stepper{grid-template-columns:34px minmax(54px,1fr) 34px;min-width:142px}
+.quantity-stepper button{width:34px;height:35px}
+.quantity-stepper input{height:35px;font-size:var(--text-secondary)}
+.row-actions button,.inventory-history article>button,.module-history article>button{width:36px;height:36px}
+.inventory-history article,.module-history article{min-height:62px;gap:12px}
+.module-history b{font-size:var(--text-body)}
+.module-history small,.module-history em,.history-list small,.history-list em{font-size:var(--text-caption)}
+.history-list b{font-size:var(--text-body)}
+.history-list article{min-height:72px;padding:16px}
+
+/* Cards, recipes, expiry and monitoring. */
+.recipe-art>b,.recipe-info>small,.recipe-metrics,.recipe-ingredients small,.recipe-ingredients span{font-size:var(--text-caption)}
+.recipe-info h3{font-size:19px}.recipe-info p{height:44px;font-size:var(--text-secondary);line-height:1.65}
+.recipe-info>div{font-size:var(--text-caption)}
+.recipe-card-actions button{min-height:40px;font-size:var(--text-secondary)}
+.generated-recipes-head p:not(.eyebrow),.recipe-empty p,.recipe-generator-note{font-size:var(--text-secondary)}
+.suggestion-menu p{font-size:var(--text-caption)}
+.suggestion-menu button{min-height:42px;font-size:var(--text-body)}
+.name-suggestion-field>input{height:44px;font-size:var(--text-body)}
+.expiry-summary small{font-size:var(--text-caption)}
+.expiry-list article{min-height:88px;padding:16px}
+.expiry-list article>div>b,.expiry-list article>strong{font-size:var(--text-body)}
+.expiry-list article>div>em,.expiry-list label{font-size:var(--text-caption)}
+.expiry-list input{min-height:40px;font-size:var(--text-secondary)}
+.environment-summary small,.environment-summary>p,.environment-list p:not(.eyebrow),.environment-list small{font-size:var(--text-secondary)}
+.environment-list article{min-height:94px;padding:19px}
+
+/* Cooking, diet, shopping and statistics. */
+.cooking-control>label{font-size:var(--text-secondary)}
+.cooking-control>label span,.cooking-kcal span{font-size:var(--text-caption)}
+.cooking-control h3{font-size:var(--text-body)}
+.ingredient-line{font-size:var(--text-secondary)}
+.cooking-progress span,.cooking-steps article>p{font-size:var(--text-caption)}
+.meal-row{min-height:78px;padding-block:18px}
+.meal-row time,.meal-row span small,.meal-row>strong small{font-size:var(--text-caption)}
+.meal-row span b,.meal-row>strong{font-size:var(--text-body)}
+.add-meal,.voice-strip{min-height:44px;font-size:var(--text-control)}
+.meal-estimate b{font-size:var(--text-body)}.meal-estimate small{font-size:var(--text-caption)}
+.shopping-list .shop-item{min-height:78px;gap:14px}
+.shop-item>span b,.restock-candidate b{font-size:var(--text-body)}
+.shop-item>span small,.shop-item>em,.restock-candidate small,.restock-candidate em,.bought-label{font-size:var(--text-caption)}
+.shop-group{padding:5px 8px;font-size:var(--text-caption)}
+.shop-item select{height:38px;font-size:var(--text-secondary)}
+.shop-item>button{width:36px;height:36px}
+.purchase-button{min-height:38px!important;font-size:var(--text-secondary)!important}
+.stat-cards small,.bars span,.bars i b,.donut small{font-size:var(--text-caption)}
+.stat-cards p,.waste-chart li,.ranking-chart li{font-size:var(--text-secondary)}
+.ranking-chart li>b{width:24px;height:24px;font-size:var(--text-caption)}
+.ring span,.ring.large span{font-size:var(--text-caption)}
+.calorie-card .eyebrow,.ai-advice .eyebrow{font-size:var(--text-caption)}
+.diet-insights>.section-head>span,.shopping-head span{font-size:var(--text-caption)}
+
+/* Settings, forms and dialogs. */
+.setting-title p,.setting-card>label,.account-card label,.compact-modal>label,.sensor-modal>label{font-size:var(--text-secondary)}
+.choice-row button{min-height:38px;font-size:var(--text-secondary)}
+.field-pair label,.form-grid label,.sensor-type-choice label,.sensor-type-choice legend{font-size:var(--text-secondary)}
+.field-pair input,.field-pair select,.form-grid input,.form-grid select,.account-card label input,.compact-modal>label input,.compact-modal textarea,.sensor-modal>label input{min-height:42px;font-size:var(--text-body)}
+.input-suffix span{font-size:var(--text-caption)}
+.tag-input>span,.sensor-chips span,.sensor-chips button{font-size:var(--text-caption)}
+.zone-editor{padding:15px}.zone-editor-top>input{font-size:var(--text-body)}
+.zone-editor-top label,.zone-editor-top label small{font-size:var(--text-caption)}
+.zone-editor-top label input{height:36px;font-size:var(--text-secondary)}
+.current-readings span,.current-readings small{font-size:var(--text-caption)}
+.sensor-chip{min-height:54px;padding:9px 10px}
+.sensor-chip b{font-size:var(--text-secondary)}
+.sensor-chip small{font-size:var(--text-caption)}
+.sensor-chip strong{font-size:var(--text-secondary)}
+.add-sensor-btn{min-height:40px;font-size:var(--text-secondary)}
+.sensor-form-note,.purchase-note,.account-unit{font-size:var(--text-secondary)}
+.account-card .account-unit,.account-card .account-unit span{font-size:var(--text-secondary)}
+.modal{font-size:var(--text-body)}
+.modal-head h2{font-size:22px}.modal-head>button{width:40px;height:40px}
+.modal p:not(.eyebrow),.modal small{font-size:var(--text-secondary);line-height:1.65}
+
+/* Home: larger surrounding controls keep the refrigerator as the visual anchor. */
+.orbit-status{min-height:72px}
+.orbit-status>div{gap:22px;font-size:var(--text-secondary)}
+.unit-switch button,.home-unit button{width:40px;height:34px;font-size:var(--text-secondary)}
+.orbit-left,.orbit-right-rail{width:min(100%,210px)}
+.home-task-grid{gap:14px}
+.home-task{min-height:104px;grid-template-columns:38px minmax(0,1fr);column-gap:12px;padding:17px 15px}
+.home-task>span{width:36px;height:36px}
+.home-task b{font-size:var(--text-card-title);line-height:1.35}
+.home-task small{font-size:var(--text-caption);line-height:1.5}
+.home-task em{min-width:22px;height:22px;font-size:var(--text-caption)}
+.home-warning{grid-template-columns:36px minmax(0,1fr);gap:11px;margin-top:14px;padding:14px}
+.home-warning>span:first-child{width:36px;height:36px}
+.home-warning small,.home-warning em{font-size:var(--text-caption);line-height:1.45}
+.home-warning b{margin:3px 0;font-size:var(--text-body);line-height:1.4}
+
+/* Fridge controls live above the WebGL stage. */
+.center-fridge{height:min(100%,760px)}
+.fridge-model{min-height:620px;grid-template-rows:auto minmax(0,1fr);gap:14px}
+.fridge-model-stage:after{bottom:7.5%}
+.fridge-model-dock{display:grid;grid-template-rows:52px 46px;gap:8px;width:min(100%,540px);margin:0 auto}
+.fridge-zone-controls{gap:8px}
+.fridge-zone-controls button{height:52px;gap:7px;padding-inline:10px;font-size:var(--text-control)}
+.fridge-zone-controls button i{font-size:var(--text-caption)}
+.fridge-status-slot{height:46px;display:flex;align-items:center;justify-content:center}
+.fridge-model-status{height:46px;gap:10px;padding:5px 6px 5px 14px;font-size:var(--text-secondary)}
+.fridge-model-status b{font-size:var(--text-body)}
+.fridge-model-status small{font-size:var(--text-caption)}
+.fridge-model-status button{height:36px;padding-inline:12px;font-size:var(--text-caption)}
+.fridge-door-close{width:36px;font-size:19px!important}
+
+/* The assistant must remain readable wherever it is dragged. */
+.app-shell>.ai-pet .ai-pet-panel{width:min(360px,calc(100vw - 24px))!important}
+.ai-pet-head small{font-size:var(--text-caption)}.ai-pet-head b{font-size:var(--text-body)}
+.ai-pet-messages p{font-size:var(--text-secondary);line-height:1.7}
+.ai-pet-prompts button{min-height:34px;font-size:var(--text-caption)}
+.ai-pet-input input{min-height:42px;font-size:var(--text-body)}
+.ai-pet-input button{width:42px;min-height:42px}
+
+@media (min-width:761px){
+  .home-content{
+    padding-top:calc(clamp(24px,3vh,42px) - 24px);
+    padding-bottom:calc(clamp(24px,3vh,42px) + 24px);
+  }
+}
+
+@media (min-width:1181px){
+  .home-console{grid-template-columns:minmax(210px,1fr) minmax(510px,560px) minmax(210px,1fr);column-gap:clamp(44px,5vw,80px)}
+  .orbit-left,.orbit-right-rail{width:min(100%,210px)}
+}
+
+@media (max-width:1100px) and (min-width:761px){
+  .orbit-left,.orbit-right-rail{width:min(100%,184px)}
+  .home-task{min-height:92px;grid-template-columns:34px minmax(0,1fr);padding:14px 12px}
+  .home-task>span{width:34px;height:34px}
+  .home-task b{font-size:var(--text-control)}
+  .home-task small{font-size:var(--text-caption)}
+  .fridge-zone-controls button{padding-inline:7px;font-size:var(--text-secondary)}
+}
+
+@media (max-width:760px){
+  .home-shell{overflow:visible}
+  .home-shell .home-content{height:auto;min-height:100vh;padding:0 18px 138px;overflow:visible}
+  .home-console{display:flex;flex-direction:column;height:auto}
+  .orbit-status{order:1;min-height:62px;padding-bottom:12px}
+  .center-fridge{order:2;height:720px;min-height:720px;margin:18px auto 28px}
+  .orbit-left{order:3;display:block;width:100%;margin-bottom:18px}
+  .orbit-right-rail{order:4;display:block;width:100%;min-height:0;margin-bottom:22px}
+  .orbit-left .home-task-grid,.orbit-right-rail .home-task-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .home-task{min-height:96px;grid-template-columns:36px minmax(0,1fr);padding:14px 12px}
+  .home-task>span{width:34px;height:34px}
+  .home-task b{font-size:var(--text-control)}
+  .home-task small{font-size:var(--text-caption)}
+  .home-task-grid>.home-task:last-child:nth-child(odd){grid-column:1/-1}
+  .home-warning{margin-top:10px}
+  .fridge-model{min-height:720px;grid-template-rows:auto minmax(0,1fr);gap:12px}
+  .fridge-model-dock{grid-template-rows:auto 46px;gap:8px;width:100%}
+  .fridge-zone-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .fridge-zone-controls button{height:48px;padding-inline:9px;font-size:var(--text-control)}
+  .fridge-model-status{max-width:100%;gap:7px;padding-left:10px}
+  .fridge-model-status small{display:inline;font-size:var(--text-caption)}
+  .fridge-model-status button{padding-inline:9px}
+  .content:not(.home-content){padding-bottom:72px}
+  .table-head,.food-row{min-width:900px}
+}
+
+@media (max-width:420px){
+  .orbit-status>div{gap:10px;font-size:var(--text-caption)}
+  .fridge-model-status{width:100%;font-size:var(--text-caption)}
+  .fridge-model-status b{font-size:var(--text-secondary)}
+  .fridge-model-status button{padding-inline:7px}
+}

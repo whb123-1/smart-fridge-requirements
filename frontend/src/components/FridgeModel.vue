@@ -210,31 +210,31 @@ function labelTexture(zone, kind) {
   context.lineJoin = 'round'
   context.strokeStyle = '#f8fbff'
   context.lineWidth = 15
-  context.font = '900 92px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
-  context.strokeText(zone.name, 286, 128)
+  context.font = '900 106px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
+  context.strokeText(zone.name, 274, 122)
   context.fillStyle = palette.ink
-  context.fillText(zone.name, 286, 128)
+  context.fillText(zone.name, 274, 122)
 
   context.fillStyle = accent
-  context.font = '800 112px "Nunito Sans", "Noto Sans SC", sans-serif'
-  context.fillText(`${zone.temp.toFixed(1)}°`, 284, 232)
+  context.font = '800 128px "Nunito Sans", "Noto Sans SC", sans-serif'
+  context.fillText(`${zone.temp.toFixed(1)}°`, 272, 231)
   const tempWidth = context.measureText(`${zone.temp.toFixed(1)}°`).width
-  context.font = '800 50px "Nunito Sans", sans-serif'
-  context.fillText('C', 294 + tempWidth, 253)
+  context.font = '800 54px "Nunito Sans", sans-serif'
+  context.fillText('C', 284 + tempWidth, 254)
 
   context.fillStyle = `${accent}20`
   context.beginPath()
-  context.roundRect(278, 282, 540, 62, 28)
+  context.roundRect(266, 278, 574, 70, 30)
   context.fill()
   context.fillStyle = '#4f6d8d'
-  context.font = '800 38px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
-  context.fillText(`${zone.items} 件在库`, 310, 315)
+  context.font = '800 44px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
+  context.fillText(`${zone.items} 件在库`, 294, 314)
   context.fillStyle = accent
   context.beginPath()
-  context.arc(526, 315, 7, 0, Math.PI * 2)
+  context.arc(542, 314, 7, 0, Math.PI * 2)
   context.fill()
   context.fillStyle = '#4f6d8d'
-  context.fillText(`湿度 ${zone.humidity}%`, 558, 315)
+  context.fillText(`湿度 ${zone.humidity}%`, 570, 314)
 
   context.globalAlpha = 0.12
   context.fillStyle = accent
@@ -489,7 +489,7 @@ function addSmartDisplay(parent) {
 
 function buildFridge() {
   fridge = new THREE.Group()
-  fridge.position.y = -0.18
+  fridge.position.y = 0.18
   scene.add(fridge)
 
   const shellMaterial = physicalMaterial(palette.shell, { roughness: 0.56, clearcoat: 0.12 })
@@ -671,7 +671,7 @@ onMounted(async () => {
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShadowMaterial({ color: '#31577e', opacity: 0.15 }))
   ground.rotation.x = -Math.PI / 2
-  ground.position.y = -3.12
+  ground.position.y = -2.76
   ground.receiveShadow = true
   scene.add(ground)
 
@@ -711,9 +711,6 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="fridge-model" aria-label="卡通四门智能冰箱">
-    <div class="fridge-model-stage">
-      <canvas ref="canvas" class="fridge-model-canvas" tabindex="0" aria-label="可旋转、可开关门的四分区冰箱模型，按数字 1 到 4 也可打开对应分区" />
-    </div>
     <div class="fridge-model-dock">
       <div class="fridge-zone-controls" aria-label="冰箱门控制">
         <button
@@ -735,6 +732,9 @@ onBeforeUnmount(() => {
           <button type="button" class="fridge-door-close" aria-label="关闭冰箱门" @click="closeDoors">×</button>
         </div>
       </div>
+    </div>
+    <div class="fridge-model-stage">
+      <canvas ref="canvas" class="fridge-model-canvas" tabindex="0" aria-label="可旋转、可开关门的四分区冰箱模型，按数字 1 到 4 也可打开对应分区" />
     </div>
   </section>
 </template>
