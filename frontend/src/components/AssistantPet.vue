@@ -24,7 +24,7 @@ const sendIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" st
       <div class="ai-pet-prompts">
         <button type="button" @click="emit('send', '怎么添加食材')">添加食材</button>
         <button type="button" @click="emit('send', '冰箱状态如何')">冰箱状态</button>
-        <button type="button" @click="emit('send', '今天能做什么')">今晚吃什么</button>
+        <button type="button" @click="emit('send', '帮我生成一道菜谱')">生成菜谱</button>
       </div>
       <form class="ai-pet-input" @submit.prevent="emit('send', '')">
         <input :value="input" placeholder="问问鲜知助手" aria-label="输入问题" @input="emit('update:input', $event.target.value)" />

@@ -39,15 +39,15 @@ const zoneLayout = [
 ]
 
 const palette = {
-  ink: '#183f4a',
-  shell: '#e7f4ea',
-  shellSide: '#b8dccc',
-  cream: '#fffaf0',
-  gasket: '#315964',
-  chill: '#6fc2dc',
-  fresh: '#76c79b',
-  variable: '#f1ad65',
-  freeze: '#769fdb',
+  ink: '#203a5a',
+  shell: '#c6dcf5',
+  shellSide: '#9fbdde',
+  cream: '#eef5fc',
+  gasket: '#355679',
+  chill: '#82b5d3',
+  fresh: '#93bfd8',
+  variable: '#779fc9',
+  freeze: '#6d88b5',
 }
 
 const color = value => new THREE.Color(value)
@@ -84,7 +84,7 @@ function cylinder(radius, height, meshMaterial, position, parent, options = {}) 
 }
 
 function zoneAccent(kind, state = 'normal') {
-  if (kind === 'variable' && state === 'warning') return '#ed9652'
+  if (kind === 'variable' && state === 'warning') return '#c37a68'
   return palette[kind]
 }
 
@@ -160,14 +160,14 @@ function labelTexture(zone, kind) {
   const accent = zoneAccent(kind, zone.state)
   const paperByKind = {
     chill: '#f2fbff',
-    fresh: '#f1fbf4',
-    variable: '#fff8ea',
-    freeze: '#f2f6ff',
+    fresh: '#edf7fd',
+    variable: '#e8f2fc',
+    freeze: '#e4eefb',
   }
   context.clearRect(0, 0, 960, 420)
 
   context.save()
-  context.shadowColor = 'rgba(38, 72, 72, 0.24)'
+  context.shadowColor = 'rgba(49, 87, 126, 0.22)'
   context.shadowBlur = 24
   context.shadowOffsetY = 14
   context.fillStyle = paperByKind[kind]
@@ -208,11 +208,11 @@ function labelTexture(zone, kind) {
   context.textAlign = 'left'
   context.textBaseline = 'middle'
   context.lineJoin = 'round'
-  context.strokeStyle = '#fffdf5'
+  context.strokeStyle = '#f8fbff'
   context.lineWidth = 15
   context.font = '900 92px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
   context.strokeText(zone.name, 286, 128)
-  context.fillStyle = '#123d48'
+  context.fillStyle = palette.ink
   context.fillText(zone.name, 286, 128)
 
   context.fillStyle = accent
@@ -226,14 +226,14 @@ function labelTexture(zone, kind) {
   context.beginPath()
   context.roundRect(278, 282, 540, 62, 28)
   context.fill()
-  context.fillStyle = '#395d65'
+  context.fillStyle = '#4f6d8d'
   context.font = '800 38px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
   context.fillText(`${zone.items} 件在库`, 310, 315)
   context.fillStyle = accent
   context.beginPath()
   context.arc(526, 315, 7, 0, Math.PI * 2)
   context.fill()
-  context.fillStyle = '#395d65'
+  context.fillStyle = '#4f6d8d'
   context.fillText(`湿度 ${zone.humidity}%`, 558, 315)
 
   context.globalAlpha = 0.12
@@ -339,9 +339,9 @@ function addInterior(zone, layout, parent) {
   const centerX = layout.side === 'left' ? -1.17 : 1.17
   const chamberWidth = 2.12
   const chamberHeight = layout.height - 0.16
-  const interiorMaterial = material('#f9fcf7', { roughness: 0.68 })
-  const wallMaterial = material('#e7f4ef', { roughness: 0.7 })
-  const shelfMaterial = physicalMaterial('#d7f1ed', { transparent: true, opacity: 0.78, transmission: 0.08, roughness: 0.22 })
+  const interiorMaterial = material('#f7fbff', { roughness: 0.68 })
+  const wallMaterial = material('#e4f0fb', { roughness: 0.7 })
+  const shelfMaterial = physicalMaterial('#d4e8f8', { transparent: true, opacity: 0.78, transmission: 0.08, roughness: 0.22 })
   const accent = zoneAccent(layout.kind, zone.state)
 
   box(chamberWidth, chamberHeight, 0.18, wallMaterial, [centerX, layout.y, -1.19], compartment, { radius: 0.08 })
@@ -356,9 +356,9 @@ function addInterior(zone, layout, parent) {
     box(1.96, 0.07, 0.07, material(accent, { roughness: 0.55 }), [centerX, level, 0.38], compartment, { radius: 0.025 })
   })
 
-  const light = box(0.78, 0.12, 0.055, new THREE.MeshBasicMaterial({ color: '#fff8cf' }), [centerX, layout.y + chamberHeight / 2 - 0.16, -1.075], compartment, { radius: 0.045, castShadow: false })
+  const light = box(0.78, 0.12, 0.055, new THREE.MeshBasicMaterial({ color: '#e6f4ff' }), [centerX, layout.y + chamberHeight / 2 - 0.16, -1.075], compartment, { radius: 0.045, castShadow: false })
   light.material.toneMapped = false
-  const drawer = box(1.88, 0.54, 1.34, physicalMaterial('#d4ece8', { transparent: true, opacity: 0.5, transmission: 0.12 }), [centerX, layout.y - 0.91, -0.35], compartment, { radius: 0.1 })
+  const drawer = box(1.88, 0.54, 1.34, physicalMaterial('#cfe3f5', { transparent: true, opacity: 0.5, transmission: 0.12 }), [centerX, layout.y - 0.91, -0.35], compartment, { radius: 0.1 })
   drawer.material.depthWrite = false
   box(0.82, 0.09, 0.08, material(accent), [centerX, layout.y - 0.76, 0.36], compartment, { radius: 0.04 })
 
@@ -401,13 +401,13 @@ function addInterior(zone, layout, parent) {
 }
 
 function addDoorBins(door, panelCenterX, layout, accent) {
-  const inner = material('#eef6ed', { roughness: 0.7 })
+  const inner = material('#edf5fc', { roughness: 0.7 })
   box(layout.width - 0.25, layout.height - 0.26, 0.16, inner, [panelCenterX, 0, -0.12], door, { radius: 0.12 })
   for (const y of [-0.6, 0.36]) {
-    box(layout.width - 0.53, 0.08, 0.42, material('#d6ebe5'), [panelCenterX, y, -0.35], door, { radius: 0.035 })
+    box(layout.width - 0.53, 0.08, 0.42, material('#d4e6f5'), [panelCenterX, y, -0.35], door, { radius: 0.035 })
     box(layout.width - 0.53, 0.12, 0.06, material(accent), [panelCenterX, y + 0.16, -0.55], door, { radius: 0.025 })
     for (const offset of [-0.68, 0.68]) {
-      box(0.06, 0.38, 0.42, material('#d6ebe5'), [panelCenterX + offset, y + 0.08, -0.35], door, { radius: 0.025 })
+      box(0.06, 0.38, 0.42, material('#d4e6f5'), [panelCenterX + offset, y + 0.08, -0.35], door, { radius: 0.025 })
     }
   }
   if (layout.kind === 'chill' || layout.kind === 'fresh') {
@@ -429,7 +429,7 @@ function addDoor(zone, layout, parent) {
 
   const gasketMaterial = material(palette.gasket, { roughness: 0.88 })
   const doorMaterial = physicalMaterial(palette.cream, { roughness: 0.48, clearcoat: 0.2 })
-  const edgeMaterial = material('#9bc9b9', { roughness: 0.58 })
+  const edgeMaterial = material('#8faed3', { roughness: 0.58 })
   const accentMaterial = material(accent, { roughness: 0.55 })
   box(layout.width + 0.055, layout.height + 0.055, 0.12, gasketMaterial, [panelCenterX, 0, -0.045], door, { radius: 0.13 })
   box(layout.width + 0.018, layout.height + 0.018, 0.17, edgeMaterial, [panelCenterX, 0, 0], door, { radius: 0.14 })
@@ -466,7 +466,7 @@ function addDoor(zone, layout, parent) {
 
   addDoorBins(door, panelCenterX, layout, accent)
 
-  const hingeMaterial = material('#638d84', { roughness: 0.52, metalness: 0.12 })
+  const hingeMaterial = material('#6686ab', { roughness: 0.52, metalness: 0.12 })
   for (const y of [-layout.height * 0.35, layout.height * 0.35]) {
     cylinder(0.075, 0.26, hingeMaterial, [left ? 0.01 : -0.01, y, -0.03], door, { segments: 14 })
   }
@@ -476,10 +476,10 @@ function addDoor(zone, layout, parent) {
 }
 
 function addSmartDisplay(parent) {
-  const displayBody = box(1.2, 0.48, 0.1, material('#275765', { roughness: 0.44 }), [0, 3.42, 1.36], parent, { radius: 0.16, segments: 5 })
-  displayBody.material.emissive = color('#183b45')
+  const displayBody = box(1.2, 0.48, 0.1, material('#365b81', { roughness: 0.44 }), [0, 3.42, 1.36], parent, { radius: 0.16, segments: 5 })
+  displayBody.material.emissive = color('#213f60')
   displayBody.material.emissiveIntensity = 0.25
-  const faceMaterial = new THREE.MeshBasicMaterial({ color: '#b9f0df' })
+  const faceMaterial = new THREE.MeshBasicMaterial({ color: '#d9e9fb' })
   for (const x of [-0.23, 0.23]) cylinder(0.045, 0.025, faceMaterial, [x, 3.47, 1.42], parent, { rotation: [Math.PI / 2, 0, 0], castShadow: false })
   const smile = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 8, 22, Math.PI), faceMaterial)
   smile.rotation.z = Math.PI
@@ -494,7 +494,7 @@ function buildFridge() {
 
   const shellMaterial = physicalMaterial(palette.shell, { roughness: 0.56, clearcoat: 0.12 })
   const sideMaterial = material(palette.shellSide, { roughness: 0.63 })
-  const innerEdgeMaterial = material('#6f9e93', { roughness: 0.62 })
+  const innerEdgeMaterial = material('#5f7fa4', { roughness: 0.62 })
 
   box(4.92, 5.56, 0.24, shellMaterial, [0, 0.4, -1.33], fridge, { radius: 0.11, segments: 4 })
   box(0.22, 5.5, 2.56, sideMaterial, [-2.4, 0.4, -0.12], fridge, { radius: 0.1, segments: 4 })
@@ -513,7 +513,7 @@ function buildFridge() {
   box(5.12, 0.27, 2.65, shellMaterial, [0, 3.34, -0.1], fridge, { radius: 0.14, segments: 4 })
   addSmartDisplay(fridge)
 
-  const footMaterial = material('#456c68', { roughness: 0.68 })
+  const footMaterial = material('#355679', { roughness: 0.68 })
   for (const footX of [-1.78, 1.78]) box(0.72, 0.24, 1.62, footMaterial, [footX, -2.77, -0.1], fridge, { radius: 0.1 })
 
   const badge = new THREE.Mesh(
@@ -649,8 +649,8 @@ onMounted(async () => {
   raycaster = new THREE.Raycaster()
   pointer = new THREE.Vector2()
 
-  scene.add(new THREE.HemisphereLight('#fffef7', '#9cc6bd', 2.15))
-  const keyLight = new THREE.DirectionalLight('#fffdf4', 3.35)
+  scene.add(new THREE.HemisphereLight('#fffefe', '#afcbea', 2.15))
+  const keyLight = new THREE.DirectionalLight('#f8fbff', 3.35)
   keyLight.position.set(5.8, 8.5, 9)
   keyLight.castShadow = true
   keyLight.shadow.mapSize.set(1536, 1536)
@@ -659,17 +659,17 @@ onMounted(async () => {
   keyLight.shadow.camera.top = 8
   keyLight.shadow.camera.bottom = -6
   scene.add(keyLight)
-  const fillLight = new THREE.DirectionalLight('#b8e7f2', 1.35)
+  const fillLight = new THREE.DirectionalLight('#c5d7f2', 1.35)
   fillLight.position.set(-6, 2, 5)
   scene.add(fillLight)
-  const rimLight = new THREE.DirectionalLight('#a7d9c2', 1.6)
+  const rimLight = new THREE.DirectionalLight('#87afd5', 1.6)
   rimLight.position.set(-5, 5, -6)
   scene.add(rimLight)
-  const interiorLight = new THREE.PointLight('#fff4c2', 2.1, 12, 1.8)
+  const interiorLight = new THREE.PointLight('#d9ecff', 2.1, 12, 1.8)
   interiorLight.position.set(0, 1.2, 4.3)
   scene.add(interiorLight)
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShadowMaterial({ color: '#47756c', opacity: 0.16 }))
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShadowMaterial({ color: '#31577e', opacity: 0.15 }))
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -3.12
   ground.receiveShadow = true

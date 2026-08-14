@@ -1,0 +1,187 @@
+.intro-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.generated-recipe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.inventory-recipe-modal {
+  width: min(100%, 600px);
+}
+
+.inventory-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #d8e5f0;
+  color: #365a7d;
+}
+
+.inventory-selection-toolbar strong {
+  font-size: 11px;
+}
+
+.inventory-selection-toolbar span {
+  display: flex;
+  gap: 12px;
+}
+
+.inventory-selection-toolbar .text-btn {
+  margin: 0;
+  padding: 0;
+  color: #426f9f;
+  font-size: 10px;
+}
+
+.inventory-recipe-options {
+  display: grid;
+  gap: 7px;
+  max-height: min(420px, 52vh);
+  overflow: auto;
+  padding: 1px 3px 2px;
+}
+
+.inventory-recipe-option {
+  display: grid;
+  grid-template-columns: 18px 31px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid #c9d9e8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  transition: 0.18s;
+}
+
+.inventory-recipe-option:hover {
+  border-color: #8bafd0;
+  background: #f7fbff;
+}
+
+.inventory-recipe-option.selected {
+  border-color: #5f88b5;
+  background: #edf6ff;
+  box-shadow: inset 3px 0 0 #5f88b5;
+}
+
+.inventory-recipe-option input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #5f88b5;
+}
+
+.inventory-recipe-option i {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 6px;
+  background: #eaf2fa;
+  font-size: 17px;
+  font-style: normal;
+}
+
+.inventory-recipe-option b,
+.inventory-recipe-option small {
+  display: block;
+}
+
+.inventory-recipe-option b {
+  color: #294967;
+  font-size: 11px;
+}
+
+.inventory-recipe-option small {
+  margin-top: 3px;
+  color: #7790a7;
+  font-size: 9px;
+}
+
+.inventory-recipe-option em {
+  color: #426f9f;
+  font: 700 10px 'Nunito Sans', sans-serif;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.inventory-recipe-empty {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 150px;
+  border: 1px dashed #b8cde1;
+  border-radius: 6px;
+  background: #f8fbff;
+  color: #6f879d;
+  text-align: center;
+}
+
+.inventory-recipe-empty span {
+  color: #6e98c0;
+}
+
+.inventory-recipe-empty p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.inventory-recipe-modal .modal-actions {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #dce7f2;
+}
+
+@media (max-width: 620px) {
+  .intro-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .intro-actions .secondary-btn,
+  .intro-actions .primary-btn {
+    flex: 1 1 auto;
+  }
+
+  .generated-recipe-actions {
+    width: 100%;
+  }
+
+  .generated-recipe-actions .primary-btn,
+  .generated-recipe-actions .secondary-btn {
+    flex: 1;
+  }
+
+  .inventory-recipe-modal {
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+  }
+
+  .inventory-recipe-option {
+    grid-template-columns: 18px 29px minmax(0, 1fr);
+  }
+
+  .inventory-recipe-option em {
+    grid-column: 3;
+    justify-self: start;
+    margin-top: -5px;
+  }
+
+  .inventory-selection-toolbar {
+    align-items: flex-start;
+  }
+
+  .inventory-selection-toolbar span {
+    gap: 10px;
+  }
+}

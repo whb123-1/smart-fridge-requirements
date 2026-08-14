@@ -8,5 +8,6 @@ import '@fontsource/nunito-sans/latin-700.css'
 import '@fontsource/nunito-sans/latin-800.css'
 import App from './App.vue'
 import './styles.css'
+import './recipe-selector.css'
 
 createApp(App).mount('#app')
