@@ -16,7 +16,7 @@ const showShoppingEditor = ref(false)
 const showSensorEditor = ref(false)
 const showRecipeNameGenerator = ref(false)
 const showInventoryRecipeSelector = ref(false)
-const showAssistant = ref(false)
+const assistantOpen = ref(false)
 const isListening = ref(false)
 const toast = ref('')
 const search = ref('')
@@ -351,11 +351,19 @@ async function assistantRoute(question) {
   if (/库存|冰箱|食材/.test(text)) { go('inventory'); return `已打开库存。当前有 ${foods.length} 项食材，${alerts.value.length} 项临期。` }
   return '可以直接问我“今天吃什么”“检查保质期”或“冰箱状态如何”。'
 }
-async function sendAssistantMessage(preset = '') { const text = (preset || assistantInput.value).trim(); if (!text) return; assistantMessages.push({ id: Date.now(), role: 'user', text }); assistantInput.value = ''; assistantMessages.push({ id: Date.now() + 1, role: 'assistant', text: await assistantRoute(text) }) }
+async function sendAssistantMessage(preset = '') {
+  const text = (preset || assistantInput.value).trim()
+  if (!text) return
+  const pageBeforeAssistantRoute = page.value
+  assistantMessages.push({ id: Date.now(), role: 'user', text })
+  assistantInput.value = ''
+  assistantMessages.push({ id: Date.now() + 1, role: 'assistant', text: await assistantRoute(text) })
+  if (page.value !== pageBeforeAssistantRoute) assistantOpen.value = false
+}
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'home-shell': page === 'home', 'assistant-open': showAssistant }">
+  <div class="app-shell" :class="{ 'home-shell': page === 'home' }">
     <main :class="{ 'home-main': page === 'home' }">
       <div class="content" :class="{ 'home-content': page === 'home' }">
         <button v-if="page !== 'home'" class="page-home-link" title="返回冰箱首页" aria-label="返回冰箱首页" @click="go('home')"><span v-html="icon('arrow', 18)"></span><span>返回首页</span></button>
@@ -365,7 +373,7 @@ async function sendAssistantMessage(preset = '') { const text = (preset || assis
             <div class="orbit-status orbit-panel orbit-status-end"><div><span><i class="online-dot"></i>{{ zones.reduce((sum, zone) => sum + zone.sensors.length, 0) }} 个传感器在线</span><span>刚刚同步</span><span class="unit-switch home-unit"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></div>
             <div class="orbit-left orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-chill" @click="go('inventory')"><span v-html="icon('box', 21)"></span><b>库存</b><small>{{ foods.length }} 项在库</small></button><button class="home-task fridge-control tone-freeze" @click="go('expiry')"><span v-html="icon('clock', 21)"></span><b>保质期</b><small>{{ alerts.length }} 项待处理</small></button><button class="home-task fridge-control tone-fresh" @click="go('recipes')"><span v-html="icon('book', 21)"></span><b>菜谱</b><small>{{ recipes.length }} 道已保存</small></button></div><button v-if="warningZones.length" class="home-warning" @click="go('environment')"><span v-html="icon('alert', 18)"></span><span><small>分区温度异常</small><b>{{ warningZones.length }} 个分区需要检查</b><em>查看全部环境提醒</em></span></button></div>
             <article class="center-fridge" aria-label="冰箱分区状态"><FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" /></article>
-            <div class="orbit-right-rail orbit-panel"><AssistantPet v-model:open="showAssistant" v-model:input="assistantInput" class="home-assistant" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" /><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button></div></div>
+            <div class="orbit-right-rail orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button></div></div>
           </section>
         </template>
 
@@ -420,6 +428,6 @@ async function sendAssistantMessage(preset = '') { const text = (preset || assis
     <div v-if="showSensorEditor && sensorZone" class="modal-backdrop" @click.self="showSensorEditor = false"><form class="modal compact-modal sensor-modal" @submit.prevent="saveSensor"><div class="modal-head"><div><p class="eyebrow">{{ sensorZone.name }}</p><h2>添加传感器</h2></div><button type="button" @click="showSensorEditor = false"><span v-html="icon('close')"></span></button></div><label>传感器名称<input v-model="sensorDraft.name" placeholder="例如：左侧上层温度探头" autofocus /></label><fieldset class="sensor-type-choice"><legend>传感器类型</legend><label><input v-model="sensorDraft.type" value="temperature" type="radio" /> 温度传感器</label><label><input v-model="sensorDraft.type" value="humidity" type="radio" /> 湿度传感器</label></fieldset><p class="sensor-form-note">当前读数将由设备同步，添加时不能手动填写温度或湿度。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showSensorEditor = false">取消</button><button class="primary-btn">添加传感器</button></div></form></div>
     <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">AI 菜谱生成</p><h2>选择库存食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择这次想优先使用的食材和调味品，AI 会结合饮食偏好生成 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ food.zone }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于生成菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 生成中' : `使用已选食材生成 (${selectedInventoryFoods.length})` }}</button></div></form></div>
     <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 菜谱生成</p><h2>按菜名生成</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜名<NameSuggestionInput v-model="recipeNameDraft" context="dish" placeholder="例如：番茄虾仁意面" aria-label="菜名" /></label><p class="recipe-generator-note">AI 会结合菜名、当前库存和饮食偏好生成 3 个可选择的完整方案。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 生成中' : '生成 3 张菜谱' }}</button></div></form></div>
-    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-if="page !== 'home'" v-model:open="showAssistant" v-model:input="assistantInput" class="global-assistant" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
+    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
   </div>
 </template>
