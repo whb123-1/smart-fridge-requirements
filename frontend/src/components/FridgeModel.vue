@@ -28,6 +28,10 @@ let rotationTarget = -0.1
 let rotationCurrent = -0.1
 let elevationTarget = -0.025
 let elevationCurrent = -0.025
+let cameraBaseDistance = 15.15
+let cameraZoom = 1
+let minimumCameraZoom = 0.96
+const maximumCameraZoom = 1.04
 let doors = []
 let clickable = []
 
@@ -597,7 +601,8 @@ function onPointerLeave() {
 
 function onWheel(event) {
   event.preventDefault()
-  camera.position.z = THREE.MathUtils.clamp(camera.position.z + event.deltaY * 0.003, 11.2, 15.8)
+  cameraZoom = THREE.MathUtils.clamp(cameraZoom + event.deltaY * 0.0002, minimumCameraZoom, maximumCameraZoom)
+  camera.position.z = cameraBaseDistance * cameraZoom
 }
 
 function onKeyDown(event) {
@@ -613,7 +618,10 @@ function resize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.setSize(width, height, false)
   camera.aspect = width / height
-  camera.position.z = camera.aspect < 0.74 ? 18.7 : camera.aspect < 0.86 ? 16.8 : 15.15
+  cameraBaseDistance = camera.aspect < 0.74 ? 18.7 : camera.aspect < 0.86 ? 16.8 : 15.15
+  minimumCameraZoom = camera.aspect > 1 ? 0.98 : 0.96
+  cameraZoom = THREE.MathUtils.clamp(cameraZoom, minimumCameraZoom, maximumCameraZoom)
+  camera.position.z = cameraBaseDistance * cameraZoom
   camera.updateProjectionMatrix()
 }
 
@@ -638,7 +646,7 @@ onMounted(async () => {
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(29, 1, 0.1, 100)
   camera.position.set(0, 0.45, 15.15)
-  camera.lookAt(0, 0.35, 0)
+  camera.lookAt(0, 0.5, 0)
   renderer = new THREE.WebGLRenderer({ canvas: canvas.value, alpha: true, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true })
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
