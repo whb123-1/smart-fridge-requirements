@@ -598,3 +598,56 @@ body,button,input,select,textarea{letter-spacing:0}
   .home-warning>span:first-child{width:30px;height:30px}
   .home-warning b{margin-block:2px;font-size:var(--text-secondary)}
 }
+
+/* A quiet, food-safe canvas: broad refrigerator-door curves replace a flat page fill. */
+.home-shell,.home-main{background:transparent}
+.home-content{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  background:#dbe8fb;
+}
+.home-content::before,.home-content::after{
+  content:'';
+  position:absolute;
+  z-index:0;
+  pointer-events:none;
+  border-style:solid;
+  border-color:rgba(255,255,255,.38);
+}
+.home-content::before{
+  width:min(52vw,820px);
+  height:min(105vh,1030px);
+  right:clamp(-620px,-29vw,-360px);
+  top:clamp(84px,9vh,150px);
+  border-width:clamp(50px,5.2vw,88px);
+  border-radius:48% 52% 42% 58% / 64% 43% 57% 36%;
+  transform:rotate(27deg);
+}
+.home-content::after{
+  width:min(41vw,600px);
+  height:min(75vh,780px);
+  left:clamp(-580px,-26vw,-300px);
+  bottom:clamp(-420px,-30vh,-180px);
+  border-width:clamp(38px,4.2vw,66px);
+  border-radius:62% 38% 51% 49% / 39% 66% 34% 61%;
+  transform:rotate(-28deg);
+}
+.home-console{position:relative;z-index:1}
+
+@media (max-width:760px){
+  .home-content::before{
+    width:90vw;
+    height:730px;
+    right:-40vw;
+    top:88px;
+    border-width:42px;
+  }
+  .home-content::after{
+    width:420px;
+    height:620px;
+    left:-320px;
+    bottom:-225px;
+    border-width:36px;
+  }
+}
