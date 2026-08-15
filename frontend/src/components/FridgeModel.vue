@@ -1,7 +1,8 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { getFridgeSpec } from './fridgeLayouts'
 
 const props = defineProps({
   zones: { type: Array, required: true },
@@ -21,6 +22,8 @@ let raycaster
 let pointer
 let frameId
 let resizeObserver
+let ground
+let cameraTarget = new THREE.Vector3(0, 0.5, 0)
 let dragStart
 let hoveredDoor = null
 let dragDistance = 0
@@ -31,16 +34,13 @@ let elevationCurrent = -0.025
 let cameraBaseDistance = 15.15
 let cameraZoom = 1
 let minimumCameraZoom = 0.96
-const maximumCameraZoom = 1.04
+const maximumCameraZoom = 1.08
 let doors = []
 let clickable = []
-
-const zoneLayout = [
-  { id: 1, side: 'left', y: 1.83, width: 2.24, height: 2.72, kind: 'chill', icon: '●' },
-  { id: 2, side: 'right', y: 1.83, width: 2.24, height: 2.72, kind: 'fresh', icon: '◆' },
-  { id: 3, side: 'left', y: -0.92, width: 2.24, height: 2.62, kind: 'variable', icon: '▲' },
-  { id: 4, side: 'right', y: -0.92, width: 2.24, height: 2.62, kind: 'freeze', icon: '✦' },
-]
+let currentSpec = getFridgeSpec(props.zones.length)
+const zoneLayout = computed(() => getFridgeSpec(props.zones.length).layouts)
+const iconByKind = Object.freeze({ chill: '●', fresh: '◆', variable: '▲', freeze: '✦' })
+const iconForKind = kind => iconByKind[kind] || '●'
 
 const palette = {
   ink: '#203a5a',
@@ -156,7 +156,7 @@ function drawZoneIcon(context, kind, x, y, size, accent) {
   context.restore()
 }
 
-function labelTexture(zone, kind) {
+function labelTexture(zone, kind, compact = false) {
   const labelCanvas = document.createElement('canvas')
   labelCanvas.width = 960
   labelCanvas.height = 420
@@ -207,38 +207,42 @@ function labelTexture(zone, kind) {
   context.beginPath()
   context.arc(167, 192, 82, 0, Math.PI * 2)
   context.fill()
-  drawZoneIcon(context, kind, 167, 192, 104, accent)
+  drawZoneIcon(context, kind, 167, 190, 96, accent)
 
   context.textAlign = 'left'
   context.textBaseline = 'middle'
   context.lineJoin = 'round'
   context.strokeStyle = '#f8fbff'
-  context.lineWidth = 15
-  context.font = '900 106px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
-  context.strokeText(zone.name, 274, 122)
+  context.lineWidth = 11
+  const nameWidth = compact ? 580 : 615
+  let nameSize = compact ? 104 : 114
+  do {
+    context.font = `900 ${nameSize}px "YouYuan", "幼圆", "Noto Sans SC", sans-serif`
+    if (context.measureText(zone.name).width <= nameWidth || nameSize <= 64) break
+    nameSize -= 4
+  } while (nameSize > 60)
+  context.strokeText(zone.name, 274, 104)
   context.fillStyle = palette.ink
-  context.fillText(zone.name, 274, 122)
+  context.fillText(zone.name, 274, 104)
 
   context.fillStyle = accent
-  context.font = '800 128px "Nunito Sans", "Noto Sans SC", sans-serif'
-  context.fillText(`${zone.temp.toFixed(1)}°`, 272, 231)
+  const temperatureSize = compact ? 124 : 136
+  context.font = `800 ${temperatureSize}px "Nunito Sans", "Noto Sans SC", sans-serif`
+  context.fillText(`${zone.temp.toFixed(1)}°`, 272, 222)
   const tempWidth = context.measureText(`${zone.temp.toFixed(1)}°`).width
-  context.font = '800 54px "Nunito Sans", sans-serif'
-  context.fillText('C', 284 + tempWidth, 254)
+  context.font = '800 50px "Nunito Sans", sans-serif'
+  context.fillText('C', 284 + tempWidth, 244)
 
-  context.fillStyle = `${accent}20`
+  context.fillStyle = `${accent}2c`
   context.beginPath()
-  context.roundRect(266, 278, 574, 70, 30)
+  context.roundRect(266, 264, 574, 104, 32)
   context.fill()
-  context.fillStyle = '#4f6d8d'
-  context.font = '800 44px "YouYuan", "幼圆", "Noto Sans SC", sans-serif'
-  context.fillText(`${zone.items} 件在库`, 294, 314)
-  context.fillStyle = accent
-  context.beginPath()
-  context.arc(542, 314, 7, 0, Math.PI * 2)
-  context.fill()
-  context.fillStyle = '#4f6d8d'
-  context.fillText(`湿度 ${zone.humidity}%`, 570, 314)
+  context.fillStyle = '#294967'
+  context.font = `800 ${compact ? 46 : 50}px "YouYuan", "幼圆", "Noto Sans SC", sans-serif`
+  context.fillText('湿度', 314, 318)
+  const humidityLabelWidth = context.measureText('湿度').width
+  context.font = `900 ${compact ? 74 : 82}px "Nunito Sans", "Noto Sans SC", sans-serif`
+  context.fillText(`${zone.humidity}%`, 340 + humidityLabelWidth, 318)
 
   context.globalAlpha = 0.12
   context.fillStyle = accent
@@ -340,59 +344,72 @@ function addFrozenPack(parent, x, y, z, packColor = '#75b9dd') {
 
 function addInterior(zone, layout, parent) {
   const compartment = new THREE.Group()
-  const centerX = layout.side === 'left' ? -1.17 : 1.17
-  const chamberWidth = 2.12
+  const centerX = layout.centerX
+  const chamberWidth = layout.width - 0.12
   const chamberHeight = layout.height - 0.16
+  const shelfWidth = chamberWidth - 0.16
+  const wallOffset = chamberWidth / 2 - 0.04
   const interiorMaterial = material('#f7fbff', { roughness: 0.68 })
   const wallMaterial = material('#e4f0fb', { roughness: 0.7 })
   const shelfMaterial = physicalMaterial('#d4e8f8', { transparent: true, opacity: 0.78, transmission: 0.08, roughness: 0.22 })
   const accent = zoneAccent(layout.kind, zone.state)
 
   box(chamberWidth, chamberHeight, 0.18, wallMaterial, [centerX, layout.y, -1.19], compartment, { radius: 0.08 })
-  box(0.09, chamberHeight - 0.08, 1.64, interiorMaterial, [centerX - 1.02, layout.y, -0.42], compartment, { radius: 0.035 })
-  box(0.09, chamberHeight - 0.08, 1.64, interiorMaterial, [centerX + 1.02, layout.y, -0.42], compartment, { radius: 0.035 })
+  box(0.09, chamberHeight - 0.08, 1.64, interiorMaterial, [centerX - wallOffset, layout.y, -0.42], compartment, { radius: 0.035 })
+  box(0.09, chamberHeight - 0.08, 1.64, interiorMaterial, [centerX + wallOffset, layout.y, -0.42], compartment, { radius: 0.035 })
   box(chamberWidth, 0.09, 1.64, interiorMaterial, [centerX, layout.y + chamberHeight / 2 - 0.045, -0.42], compartment, { radius: 0.035 })
   box(chamberWidth, 0.09, 1.64, interiorMaterial, [centerX, layout.y - chamberHeight / 2 + 0.045, -0.42], compartment, { radius: 0.035 })
 
-  const shelfLevels = [layout.y + 0.42, layout.y - 0.42]
+  const shelfLevels = currentSpec.interiorProfile === 'legacy'
+    ? [layout.y + 0.42, layout.y - 0.42]
+    : currentSpec.interiorProfile === 'wide'
+      ? [layout.y + chamberHeight * 0.2, layout.y - chamberHeight * 0.2]
+      : [layout.y + chamberHeight * 0.16]
   shelfLevels.forEach(level => {
-    box(1.96, 0.07, 1.46, shelfMaterial, [centerX, level, -0.34], compartment, { radius: 0.025 })
-    box(1.96, 0.07, 0.07, material(accent, { roughness: 0.55 }), [centerX, level, 0.38], compartment, { radius: 0.025 })
+    box(shelfWidth, 0.07, 1.46, shelfMaterial, [centerX, level, -0.34], compartment, { radius: 0.025 })
+    box(shelfWidth, 0.07, 0.07, material(accent, { roughness: 0.55 }), [centerX, level, 0.38], compartment, { radius: 0.025 })
   })
 
   const light = box(0.78, 0.12, 0.055, new THREE.MeshBasicMaterial({ color: '#e6f4ff' }), [centerX, layout.y + chamberHeight / 2 - 0.16, -1.075], compartment, { radius: 0.045, castShadow: false })
   light.material.toneMapped = false
-  const drawer = box(1.88, 0.54, 1.34, physicalMaterial('#cfe3f5', { transparent: true, opacity: 0.5, transmission: 0.12 }), [centerX, layout.y - 0.91, -0.35], compartment, { radius: 0.1 })
+  const drawerWidth = chamberWidth - 0.24
+  const drawerHeight = currentSpec.interiorProfile === 'legacy' ? 0.54 : Math.min(0.42, chamberHeight * 0.24)
+  const drawerY = currentSpec.interiorProfile === 'legacy' ? layout.y - 0.91 : layout.y - chamberHeight * 0.32
+  const drawer = box(drawerWidth, drawerHeight, 1.34, physicalMaterial('#cfe3f5', { transparent: true, opacity: 0.5, transmission: 0.12 }), [centerX, drawerY, -0.35], compartment, { radius: 0.1 })
   drawer.material.depthWrite = false
-  box(0.82, 0.09, 0.08, material(accent), [centerX, layout.y - 0.76, 0.36], compartment, { radius: 0.04 })
+  box(Math.min(1.2, drawerWidth * 0.44), 0.09, 0.08, material(accent), [centerX, drawerY + drawerHeight * 0.28, 0.36], compartment, { radius: 0.04 })
 
   const z = 0.12
+  const xScale = Math.min(1.55, chamberWidth / 2.12)
+  const yScale = Math.min(1, chamberHeight / 2.46)
+  const px = offset => centerX + offset * xScale
+  const py = offset => layout.y + offset * yScale
   if (layout.kind === 'chill') {
-    addBottle(compartment, centerX - 0.57, layout.y + 0.54, z, '#f6fbfd', '#69b4d2')
-    addBottle(compartment, centerX - 0.13, layout.y + 0.54, z, '#fff6dc', '#ef8c73')
-    addJar(compartment, centerX + 0.52, layout.y + 0.45, z, '#f5e7b9', '#77b99b')
-    addFoodTray(compartment, centerX + 0.38, layout.y - 0.21, z, '#eb9a8b')
-    addEggBox(compartment, centerX - 0.38, layout.y - 0.99, z)
+    addBottle(compartment, px(-0.57), py(0.54), z, '#f6fbfd', '#69b4d2')
+    addBottle(compartment, px(-0.13), py(0.54), z, '#fff6dc', '#ef8c73')
+    addJar(compartment, px(0.52), py(0.45), z, '#f5e7b9', '#77b99b')
+    addFoodTray(compartment, px(0.38), py(-0.21), z, '#eb9a8b')
+    if (currentSpec.interiorProfile !== 'compact') addEggBox(compartment, px(-0.38), py(-0.99), z)
   }
   if (layout.kind === 'fresh') {
-    addProduce(compartment, centerX - 0.57, layout.y + 0.61, z, '#68b760')
-    addProduce(compartment, centerX - 0.08, layout.y + 0.59, z, '#e86457')
-    addProduce(compartment, centerX + 0.47, layout.y + 0.56, z, '#f0c950', 'long')
-    addProduce(compartment, centerX - 0.45, layout.y - 0.2, z, '#80bd4d', 'long')
-    addProduce(compartment, centerX + 0.34, layout.y - 0.18, z, '#e88445')
-    addProduce(compartment, centerX, layout.y - 1.0, z, '#63aa72')
+    addProduce(compartment, px(-0.57), py(0.61), z, '#68b760')
+    addProduce(compartment, px(-0.08), py(0.59), z, '#e86457')
+    addProduce(compartment, px(0.47), py(0.56), z, '#f0c950', 'long')
+    addProduce(compartment, px(-0.45), py(-0.2), z, '#80bd4d', 'long')
+    addProduce(compartment, px(0.34), py(-0.18), z, '#e88445')
+    if (currentSpec.interiorProfile !== 'compact') addProduce(compartment, centerX, py(-1), z, '#63aa72')
   }
   if (layout.kind === 'variable') {
-    addFoodTray(compartment, centerX - 0.42, layout.y + 0.55, z, '#e9a08c')
-    addFoodTray(compartment, centerX + 0.42, layout.y - 0.2, z, '#df8f86')
-    addJar(compartment, centerX - 0.46, layout.y - 0.17, z, '#f3d68d', '#efa35f')
-    addProduce(compartment, centerX, layout.y - 1.0, z, '#d6b64f')
+    addFoodTray(compartment, px(-0.42), py(0.55), z, '#e9a08c')
+    addFoodTray(compartment, px(0.42), py(-0.2), z, '#df8f86')
+    addJar(compartment, px(-0.46), py(-0.17), z, '#f3d68d', '#efa35f')
+    if (currentSpec.interiorProfile !== 'compact') addProduce(compartment, centerX, py(-1), z, '#d6b64f')
   }
   if (layout.kind === 'freeze') {
-    addFrozenPack(compartment, centerX - 0.46, layout.y + 0.57, z, '#72b9dc')
-    addFrozenPack(compartment, centerX + 0.36, layout.y + 0.54, z, '#789ad0')
-    addFrozenPack(compartment, centerX - 0.18, layout.y - 0.2, z, '#9cd2e7')
-    addFoodTray(compartment, centerX + 0.36, layout.y - 0.99, z, '#ef9e88')
+    addFrozenPack(compartment, px(-0.46), py(0.57), z, '#72b9dc')
+    addFrozenPack(compartment, px(0.36), py(0.54), z, '#789ad0')
+    addFrozenPack(compartment, px(-0.18), py(-0.2), z, '#9cd2e7')
+    if (currentSpec.interiorProfile !== 'compact') addFoodTray(compartment, px(0.36), py(-0.99), z, '#ef9e88')
   }
 
   compartment.traverse(object => {
@@ -404,13 +421,23 @@ function addInterior(zone, layout, parent) {
   parent.add(compartment)
 }
 
+function zoneItemCount(zone) {
+  return props.foods.filter(food => Number(food.zoneId) === Number(zone.id)).length
+}
+
+function zoneSnapshot(zone) {
+  return { ...zone, items: zoneItemCount(zone) }
+}
+
 function addDoorBins(door, panelCenterX, layout, accent) {
   const inner = material('#edf5fc', { roughness: 0.7 })
   box(layout.width - 0.25, layout.height - 0.26, 0.16, inner, [panelCenterX, 0, -0.12], door, { radius: 0.12 })
-  for (const y of [-0.6, 0.36]) {
+  const binLevels = layout.height < 2.1 ? [-layout.height * 0.22, layout.height * 0.22] : [-0.6, 0.36]
+  const sideOffset = Math.min(0.68, layout.width * 0.3)
+  for (const y of binLevels) {
     box(layout.width - 0.53, 0.08, 0.42, material('#d4e6f5'), [panelCenterX, y, -0.35], door, { radius: 0.035 })
     box(layout.width - 0.53, 0.12, 0.06, material(accent), [panelCenterX, y + 0.16, -0.55], door, { radius: 0.025 })
-    for (const offset of [-0.68, 0.68]) {
+    for (const offset of [-sideOffset, sideOffset]) {
       box(0.06, 0.38, 0.42, material('#d4e6f5'), [panelCenterX + offset, y + 0.08, -0.35], door, { radius: 0.025 })
     }
   }
@@ -425,9 +452,9 @@ function addDoorBins(door, panelCenterX, layout, accent) {
 
 function addDoor(zone, layout, parent) {
   const door = new THREE.Group()
-  const left = layout.side === 'left'
+  const left = layout.hingeSide !== 'right'
   const hingeX = left ? -2.39 : 2.39
-  const panelCenterX = left ? 1.13 : -1.13
+  const panelCenterX = layout.panelCenterX ?? (layout.centerX - hingeX)
   const accent = zoneAccent(layout.kind, zone.state)
   door.position.set(hingeX, layout.y, 1.19)
 
@@ -442,12 +469,15 @@ function addDoor(zone, layout, parent) {
   panel.userData.door = true
   clickable.push(panel)
 
-  box(0.7, 0.095, 0.075, accentMaterial, [panelCenterX, layout.height * 0.33, 0.225], door, { radius: 0.047 })
-  const labelCenterX = panelCenterX + (left ? -0.095 : 0.095)
+  box(Math.min(1.2, layout.width * 0.32), 0.095, 0.075, accentMaterial, [panelCenterX, layout.height * 0.33, 0.225], door, { radius: 0.047 })
+  const labelCenterX = panelCenterX + (layout.side === 'center' ? 0 : left ? -0.095 : 0.095)
   const labelY = layout.height * 0.075
+  const compactLabel = layout.width < 3
+  const labelWidth = Math.min(layout.width - 0.28, layout.width * (compactLabel ? 0.86 : 0.8))
+  const labelHeight = labelWidth / (960 / 420)
   const label = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.64, 0.72),
-    new THREE.MeshBasicMaterial({ map: labelTexture(zone, layout.kind), transparent: true, depthWrite: false }),
+    new THREE.PlaneGeometry(labelWidth, labelHeight),
+    new THREE.MeshBasicMaterial({ map: labelTexture(zone, layout.kind, compactLabel), transparent: true, depthWrite: false }),
   )
   const stickerAngles = { chill: -0.022, fresh: 0.018, variable: 0.025, freeze: -0.015 }
   label.position.set(labelCenterX, labelY, 0.201)
@@ -457,16 +487,18 @@ function addDoor(zone, layout, parent) {
   door.add(label)
   clickable.push(label)
 
-  const tape = box(0.5, 0.115, 0.022, material(accent, { transparent: true, opacity: 0.38, roughness: 0.92 }), [labelCenterX, labelY + 0.345, 0.214], door, { radius: 0.018, castShadow: false })
+  const tape = box(Math.min(0.72, labelWidth * 0.31), 0.115, 0.022, material(accent, { transparent: true, opacity: 0.38, roughness: 0.92 }), [labelCenterX, labelY + labelHeight * 0.48, 0.214], door, { radius: 0.018, castShadow: false })
   tape.rotation.z = stickerAngles[layout.kind] * -1.7
 
-  const handleX = left ? panelCenterX + 0.77 : panelCenterX - 0.77
-  const handle = box(0.17, 0.82, 0.19, accentMaterial, [handleX, -0.16, 0.25], door, { radius: 0.085, segments: 4 })
+  const handleOffset = layout.width / 2 - 0.22
+  const handleX = left ? panelCenterX + handleOffset : panelCenterX - handleOffset
+  const handleHeight = Math.min(0.82, layout.height * 0.42)
+  const handle = box(0.17, handleHeight, 0.19, accentMaterial, [handleX, -0.12, 0.25], door, { radius: 0.085, segments: 4 })
   handle.userData.zoneId = zone.id
   handle.userData.door = true
   clickable.push(handle)
-  box(0.27, 0.16, 0.16, accentMaterial, [handleX, 0.16, 0.18], door, { radius: 0.065 })
-  box(0.27, 0.16, 0.16, accentMaterial, [handleX, -0.48, 0.18], door, { radius: 0.065 })
+  box(0.27, 0.16, 0.16, accentMaterial, [handleX, handleHeight * 0.28, 0.18], door, { radius: 0.065 })
+  box(0.27, 0.16, 0.16, accentMaterial, [handleX, -handleHeight * 0.5, 0.18], door, { radius: 0.065 })
 
   addDoorBins(door, panelCenterX, layout, accent)
 
@@ -479,19 +511,49 @@ function addDoor(zone, layout, parent) {
   doors.push({ zone, layout, pivot: door, open: false, target: 0, hover: 0 })
 }
 
-function addSmartDisplay(parent) {
-  const displayBody = box(1.2, 0.48, 0.1, material('#365b81', { roughness: 0.44 }), [0, 3.42, 1.36], parent, { radius: 0.16, segments: 5 })
+function addSmartDisplay(parent, displayY) {
+  const displayBody = box(1.2, 0.48, 0.1, material('#365b81', { roughness: 0.44 }), [0, displayY, 1.36], parent, { radius: 0.16, segments: 5 })
   displayBody.material.emissive = color('#213f60')
   displayBody.material.emissiveIntensity = 0.25
   const faceMaterial = new THREE.MeshBasicMaterial({ color: '#d9e9fb' })
-  for (const x of [-0.23, 0.23]) cylinder(0.045, 0.025, faceMaterial, [x, 3.47, 1.42], parent, { rotation: [Math.PI / 2, 0, 0], castShadow: false })
+  for (const x of [-0.23, 0.23]) cylinder(0.045, 0.025, faceMaterial, [x, displayY + 0.05, 1.42], parent, { rotation: [Math.PI / 2, 0, 0], castShadow: false })
   const smile = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 8, 22, Math.PI), faceMaterial)
   smile.rotation.z = Math.PI
-  smile.position.set(0, 3.4, 1.42)
+  smile.position.set(0, displayY - 0.02, 1.42)
   parent.add(smile)
 }
 
+function addInternalFrames(spec, parent, frameMaterial) {
+  const frameDepth = 0.22
+  const frontZ = 1.08
+
+  if (spec.count === 4) {
+    box(0.12, spec.bodyHeight - 0.23, frameDepth, frameMaterial, [0, spec.bodyCenterY - 0.02, frontZ], parent, { radius: 0.05 })
+    box(spec.bodyWidth - 0.23, 0.12, frameDepth, frameMaterial, [0, spec.bodyCenterY + 0.03, frontZ], parent, { radius: 0.05 })
+    return
+  }
+
+  const rows = [...new Set(spec.layouts.map(layout => layout.y))].sort((a, b) => b - a)
+  rows.slice(1).forEach((rowY, index) => {
+    const seamY = (rows[index] + rowY) / 2
+    box(spec.bodyWidth - 0.23, 0.05, frameDepth, frameMaterial, [0, seamY, frontZ], parent, { radius: 0.025 })
+  })
+
+  const hasCenterDoor = spec.layouts.some(layout => layout.side === 'center')
+  if (!hasCenterDoor) {
+    box(0.12, spec.bodyHeight - 0.23, frameDepth, frameMaterial, [0, spec.bodyCenterY - 0.02, frontZ], parent, { radius: 0.05 })
+    return
+  }
+
+  const pairedDoors = spec.layouts.filter(layout => layout.side === 'left' || layout.side === 'right')
+  if (!pairedDoors.length) return
+  const upperEdge = Math.max(...pairedDoors.map(layout => layout.y + layout.height / 2 + 0.0275))
+  const lowerEdge = Math.min(...pairedDoors.map(layout => layout.y - layout.height / 2 - 0.0275))
+  box(0.12, upperEdge - lowerEdge, frameDepth, frameMaterial, [0, (upperEdge + lowerEdge) / 2, frontZ], parent, { radius: 0.05 })
+}
+
 function buildFridge() {
+  const spec = currentSpec
   fridge = new THREE.Group()
   fridge.position.y = 0.18
   scene.add(fridge)
@@ -500,32 +562,75 @@ function buildFridge() {
   const sideMaterial = material(palette.shellSide, { roughness: 0.63 })
   const innerEdgeMaterial = material('#5f7fa4', { roughness: 0.62 })
 
-  box(4.92, 5.56, 0.24, shellMaterial, [0, 0.4, -1.33], fridge, { radius: 0.11, segments: 4 })
-  box(0.22, 5.5, 2.56, sideMaterial, [-2.4, 0.4, -0.12], fridge, { radius: 0.1, segments: 4 })
-  box(0.22, 5.5, 2.56, sideMaterial, [2.4, 0.4, -0.12], fridge, { radius: 0.1, segments: 4 })
-  box(0.12, 5.33, 0.22, innerEdgeMaterial, [0, 0.38, 1.08], fridge, { radius: 0.05 })
-  box(4.69, 0.12, 0.22, innerEdgeMaterial, [0, 0.43, 1.08], fridge, { radius: 0.05 })
+  box(spec.bodyWidth, spec.bodyHeight, 0.24, shellMaterial, [0, spec.bodyCenterY, -1.33], fridge, { radius: 0.11, segments: 4 })
+  box(0.22, spec.bodyHeight - 0.06, 2.56, sideMaterial, [-2.4, spec.bodyCenterY, -0.12], fridge, { radius: 0.1, segments: 4 })
+  box(0.22, spec.bodyHeight - 0.06, 2.56, sideMaterial, [2.4, spec.bodyCenterY, -0.12], fridge, { radius: 0.1, segments: 4 })
+  addInternalFrames(spec, fridge, innerEdgeMaterial)
 
-  for (const layout of zoneLayout) {
+  for (const layout of spec.layouts) {
     const zone = props.zones.find(item => item.id === layout.id)
     if (!zone) continue
-    addInterior(zone, layout, fridge)
-    addDoor(zone, layout, fridge)
+    const resolvedLayout = { ...layout, kind: zone.kind || layout.kind }
+    const displayZone = zoneSnapshot(zone)
+    addInterior(displayZone, resolvedLayout, fridge)
+    addDoor(displayZone, resolvedLayout, fridge)
   }
 
-  box(5.2, 0.34, 2.67, sideMaterial, [0, -2.54, -0.1], fridge, { radius: 0.14, segments: 4 })
-  box(5.12, 0.27, 2.65, shellMaterial, [0, 3.34, -0.1], fridge, { radius: 0.14, segments: 4 })
-  addSmartDisplay(fridge)
+  box(5.2, 0.34, 2.67, sideMaterial, [0, spec.shellBottomY, -0.1], fridge, { radius: 0.14, segments: 4 })
+  box(5.12, 0.27, 2.65, shellMaterial, [0, spec.shellTopY, -0.1], fridge, { radius: 0.14, segments: 4 })
+  addSmartDisplay(fridge, spec.displayY)
 
   const footMaterial = material('#355679', { roughness: 0.68 })
-  for (const footX of [-1.78, 1.78]) box(0.72, 0.24, 1.62, footMaterial, [footX, -2.77, -0.1], fridge, { radius: 0.1 })
+  for (const footX of [-1.78, 1.78]) box(0.72, 0.24, 1.62, footMaterial, [footX, spec.feetY, -0.1], fridge, { radius: 0.1 })
 
   const badge = new THREE.Mesh(
     new THREE.CircleGeometry(0.16, 28),
     new THREE.MeshBasicMaterial({ color: '#f5bf5c' }),
   )
-  badge.position.set(-2.03, 3.39, 1.42)
+  badge.position.set(-2.03, spec.displayY - 0.03, 1.42)
   fridge.add(badge)
+  if (ground) ground.position.y = spec.groundY
+}
+
+function disposeObject(object) {
+  if (!object) return
+  const geometries = new Set()
+  const materials = new Set()
+  object.traverse(item => {
+    if (item.geometry) geometries.add(item.geometry)
+    const itemMaterials = Array.isArray(item.material) ? item.material : [item.material]
+    itemMaterials.filter(Boolean).forEach(materialItem => materials.add(materialItem))
+  })
+  geometries.forEach(geometry => geometry.dispose())
+  materials.forEach(materialItem => {
+    Object.values(materialItem).forEach(value => {
+      if (value?.isTexture) value.dispose()
+    })
+    materialItem.dispose()
+  })
+}
+
+function disposeFridge() {
+  if (!fridge) return
+  scene?.remove(fridge)
+  disposeObject(fridge)
+  fridge = null
+  doors = []
+  clickable = []
+  hoveredDoor = null
+}
+
+function rebuildFridge() {
+  if (!scene) return
+  const activeZoneId = activeZone.value?.id
+  const nextSpec = getFridgeSpec(props.zones.length)
+  if (nextSpec.count !== currentSpec.count) cameraZoom = 1
+  currentSpec = nextSpec
+  disposeFridge()
+  buildFridge()
+  if (activeZoneId && props.zones.some(zone => zone.id === activeZoneId)) handleZone(activeZoneId)
+  else activeZone.value = null
+  resize()
 }
 
 function handleZone(zoneId) {
@@ -537,7 +642,7 @@ function handleZone(zoneId) {
   }
   doors.forEach(item => {
     item.open = item.zone.id === zoneId
-    item.target = item.open ? (item.layout.side === 'left' ? -1.72 : 1.72) : 0
+    item.target = item.open ? (item.layout.hingeSide === 'right' ? 1.72 : -1.72) : 0
   })
   activeZone.value = door.zone
 }
@@ -602,13 +707,33 @@ function onPointerLeave() {
 function onWheel(event) {
   event.preventDefault()
   cameraZoom = THREE.MathUtils.clamp(cameraZoom + event.deltaY * 0.0002, minimumCameraZoom, maximumCameraZoom)
-  camera.position.z = cameraBaseDistance * cameraZoom
+  updateCamera()
 }
 
 function onKeyDown(event) {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target?.tagName) || event.target?.isContentEditable) return
   if (event.key === 'Escape' && activeZone.value) closeDoors()
   const number = Number(event.key)
-  if (number >= 1 && number <= 4) handleZone(number)
+  if (number >= 1 && number <= props.zones.length) handleZone(number)
+}
+
+function updateCamera() {
+  if (!camera) return
+  const top = currentSpec.displayY + 0.28
+  const bottom = currentSpec.feetY - 0.15
+  const modelHeight = top - bottom
+  const modelWidth = 5.3
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov)
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect)
+  const verticalDistance = modelHeight / (2 * Math.tan(verticalFov / 2)) * 1.26
+  const horizontalDistance = modelWidth / (2 * Math.tan(horizontalFov / 2)) * 1.18
+
+  cameraTarget.set(0, (top + bottom) / 2 + 0.18, 0)
+  cameraBaseDistance = Math.max(verticalDistance, horizontalDistance)
+  minimumCameraZoom = camera.aspect < 0.74 ? 0.96 : 0.94
+  cameraZoom = THREE.MathUtils.clamp(cameraZoom, minimumCameraZoom, maximumCameraZoom)
+  camera.position.set(0, cameraTarget.y + 0.03, cameraBaseDistance * cameraZoom)
+  camera.lookAt(cameraTarget)
 }
 
 function resize() {
@@ -618,10 +743,7 @@ function resize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.setSize(width, height, false)
   camera.aspect = width / height
-  cameraBaseDistance = camera.aspect < 0.74 ? 18.7 : camera.aspect < 0.86 ? 16.8 : 15.15
-  minimumCameraZoom = camera.aspect > 1 ? 0.98 : 0.96
-  cameraZoom = THREE.MathUtils.clamp(cameraZoom, minimumCameraZoom, maximumCameraZoom)
-  camera.position.z = cameraBaseDistance * cameraZoom
+  updateCamera()
   camera.updateProjectionMatrix()
 }
 
@@ -629,8 +751,10 @@ function animate() {
   frameId = requestAnimationFrame(animate)
   rotationCurrent = THREE.MathUtils.lerp(rotationCurrent, rotationTarget, 0.075)
   elevationCurrent = THREE.MathUtils.lerp(elevationCurrent, elevationTarget, 0.075)
-  fridge.rotation.y = rotationCurrent
-  fridge.rotation.x = elevationCurrent
+  if (fridge) {
+    fridge.rotation.y = rotationCurrent
+    fridge.rotation.x = elevationCurrent
+  }
   doors.forEach(door => {
     door.pivot.rotation.y = THREE.MathUtils.lerp(door.pivot.rotation.y, door.target, 0.105)
     const targetLift = hoveredDoor === door.zone.id && !door.open ? 0.035 : 0
@@ -677,7 +801,7 @@ onMounted(async () => {
   interiorLight.position.set(0, 1.2, 4.3)
   scene.add(interiorLight)
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShadowMaterial({ color: '#31577e', opacity: 0.15 }))
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShadowMaterial({ color: '#31577e', opacity: 0.15 }))
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -2.76
   ground.receiveShadow = true
@@ -696,6 +820,8 @@ onMounted(async () => {
   animate()
 })
 
+watch(() => [props.zones, props.foods], rebuildFridge, { deep: true })
+
 onBeforeUnmount(() => {
   cancelAnimationFrame(frameId)
   resizeObserver?.disconnect()
@@ -705,6 +831,7 @@ onBeforeUnmount(() => {
   canvas.value?.removeEventListener('pointerleave', onPointerLeave)
   canvas.value?.removeEventListener('wheel', onWheel)
   window.removeEventListener('keydown', onKeyDown)
+  disposeFridge()
   scene?.traverse(object => {
     object.geometry?.dispose?.()
     const materials = Array.isArray(object.material) ? object.material : [object.material]
@@ -718,9 +845,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="fridge-model" aria-label="卡通四门智能冰箱">
+  <section class="fridge-model" :class="`model-count-${zoneLayout.length}`" :aria-label="`可交互的 ${zoneLayout.length} 分区智能冰箱`">
     <div class="fridge-model-dock">
-      <div class="fridge-zone-controls" aria-label="冰箱门控制">
+      <div class="fridge-zone-controls" :class="`zone-count-${zoneLayout.length}`" aria-label="冰箱门控制">
         <button
           v-for="layout in zoneLayout"
           :key="layout.id"
@@ -729,20 +856,20 @@ onBeforeUnmount(() => {
           :aria-pressed="activeZone?.id === layout.id"
           @click="handleZone(layout.id)"
         >
-          <i aria-hidden="true">{{ layout.icon }}</i>
+          <i aria-hidden="true">{{ iconForKind(layout.kind) }}</i>
           <span>{{ props.zones.find(zone => zone.id === layout.id)?.name }}</span>
         </button>
       </div>
       <div class="fridge-status-slot" aria-live="polite">
         <div v-if="activeZone" class="fridge-model-status" :class="{ warning: activeZone.state === 'warning' }">
-          <span></span><b>{{ activeZone.name }}</b><small>{{ activeZone.items }} 件 · {{ activeZone.temp.toFixed(1) }}°C</small>
+          <span></span><b>{{ activeZone.name }}</b><small>{{ zoneItemCount(activeZone) }} 件 · {{ activeZone.temp.toFixed(1) }}°C</small>
           <button type="button" class="fridge-zone-detail" @click="openZoneDetails">查看分区</button>
           <button type="button" class="fridge-door-close" aria-label="关闭冰箱门" @click="closeDoors">×</button>
         </div>
       </div>
     </div>
     <div class="fridge-model-stage">
-      <canvas ref="canvas" class="fridge-model-canvas" tabindex="0" aria-label="可旋转、可开关门的四分区冰箱模型，按数字 1 到 4 也可打开对应分区" />
+      <canvas ref="canvas" class="fridge-model-canvas" tabindex="0" :aria-label="`可旋转、可开关门的 ${zoneLayout.length} 分区冰箱模型，按数字 1 到 ${zoneLayout.length} 可打开对应分区`" />
     </div>
   </section>
 </template>
