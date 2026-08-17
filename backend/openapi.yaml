@@ -1,0 +1,352 @@
+openapi: 3.1.0
+info:
+  title: 鲜知智慧冰箱 API
+  version: 1.0.0
+  description: 阶段 0-1 的账户、会话与首次冰箱初始化契约。
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      security: []
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/SessionResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/ConflictError' }
+  /auth/login:
+    post:
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SessionResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '429': { $ref: '#/components/responses/RateLimitedError' }
+  /auth/refresh:
+    post:
+      security: []
+      operationId: refreshSession
+      description: 使用 HttpOnly `xianzhi_refresh` Cookie 轮换刷新会话。
+      responses:
+        '200': { $ref: '#/components/responses/SessionResponse' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+  /auth/logout:
+    post:
+      security: []
+      operationId: logout
+      responses:
+        '200':
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyEnvelope' }
+          description: 当前刷新会话已撤销且 Cookie 已清除。
+  /me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+    patch:
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: 已更新的用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '409': { $ref: '#/components/responses/ConflictError' }
+  /me/password:
+    patch:
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200': { description: 密码已修改，现有刷新会话已撤销。 }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+  /onboarding:
+    get:
+      operationId: getOnboardingStatus
+      responses:
+        '200':
+          description: 初始化状态、约束、默认目标及已创建冰箱摘要。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OnboardingStatusEnvelope' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+  /onboarding/initialize:
+    post:
+      operationId: initializeFridge
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InitializeRequest' }
+      responses:
+        '200':
+          description: 初始化完成；相同幂等键和请求返回相同响应。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FridgeEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '409': { $ref: '#/components/responses/ConflictError' }
+  /fridges:
+    get:
+      operationId: listFridges
+      responses:
+        '200':
+          description: 当前用户拥有的冰箱与分区摘要。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/FridgeSummary' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    SessionResponse:
+      description: 已认证会话。响应同时设置 HttpOnly 刷新 Cookie。
+      headers:
+        Set-Cookie:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionEnvelope' }
+    ValidationError:
+      description: 请求字段校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    UnauthorizedError:
+      description: 身份凭据无效或过期
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ConflictError:
+      description: 资源状态冲突或幂等键复用
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimitedError:
+      description: 请求频率超限
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Envelope:
+      type: object
+      required: [code, message, data, traceId]
+      properties:
+        code: { type: string, example: OK }
+        message: { type: string }
+        data: {}
+        traceId: { type: string }
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                fields:
+                  type: object
+                  additionalProperties: { type: string }
+    EmptyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { type: 'null' }
+    RegisterRequest:
+      type: object
+      required: [username, email, password, displayName]
+      properties:
+        username: { type: string, pattern: '^[a-z0-9_]{3,32}$', minLength: 3, maxLength: 32 }
+        email: { type: string, format: email, maxLength: 320 }
+        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+        displayName: { type: string, minLength: 1, maxLength: 80 }
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier: { type: string, minLength: 1, maxLength: 320, description: Email address or username }
+        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+    UpdateProfileRequest:
+      type: object
+      required: [username, displayName, timezone, temperatureUnit]
+      properties:
+        username: { type: string, pattern: '^[a-z0-9_]{3,32}$', minLength: 3, maxLength: 32 }
+        displayName: { type: string, minLength: 1, maxLength: 80 }
+        timezone: { type: string, example: Asia/Shanghai }
+        temperatureUnit: { type: string, enum: [C, F] }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+        newPassword: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+    User:
+      type: object
+      required: [id, username, email, displayName, timezone, temperatureUnit]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string, pattern: '^[a-z0-9_]{3,32}$' }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        timezone: { type: string }
+        temperatureUnit: { type: string, enum: [C, F] }
+    UserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/User' }
+    Session:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, user, onboardingRequired]
+      properties:
+        accessToken: { type: string, writeOnly: true }
+        accessTokenExpiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+        onboardingRequired: { type: boolean }
+    SessionEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/Session' }
+    ZoneKind:
+      type: string
+      enum: [CHILL, FRESH, VARIABLE, FREEZE]
+    ZoneRequest:
+      type: object
+      required: [kind, name, temperatureSensorCount, humiditySensorCount]
+      properties:
+        kind: { $ref: '#/components/schemas/ZoneKind' }
+        name: { type: string, minLength: 1, maxLength: 48 }
+        temperatureSensorCount: { type: integer, minimum: 0, maximum: 4 }
+        humiditySensorCount: { type: integer, minimum: 0, maximum: 4 }
+    InitializeRequest:
+      type: object
+      required: [fridgeName, zones]
+      properties:
+        fridgeName: { type: string, minLength: 1, maxLength: 80 }
+        zones:
+          type: array
+          minItems: 3
+          maxItems: 6
+          items: { $ref: '#/components/schemas/ZoneRequest' }
+    ZoneDefault:
+      type: object
+      properties:
+        kind: { $ref: '#/components/schemas/ZoneKind' }
+        suggestedName: { type: string }
+        targetTemperatureC: { type: number }
+        targetHumidityPct: { type: number }
+        safeTemperatureMinC: { type: number }
+        safeTemperatureMaxC: { type: number }
+        safeHumidityMinPct: { type: number }
+        safeHumidityMaxPct: { type: number }
+    ZoneSummary:
+      type: object
+      required: [id, kind, name, enabled, targetTemperatureC, targetHumidityPct, temperatureSensorCount, humiditySensorCount, sensorBindingStatus]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/ZoneKind' }
+        name: { type: string }
+        enabled: { type: boolean }
+        targetTemperatureC: { type: number }
+        targetHumidityPct: { type: number }
+        safeTemperatureMinC: { type: number }
+        safeTemperatureMaxC: { type: number }
+        safeHumidityMinPct: { type: number }
+        safeHumidityMaxPct: { type: number }
+        temperatureSensorCount: { type: integer }
+        humiditySensorCount: { type: integer }
+        sensorBindingStatus: { type: string, enum: [PENDING_BIND, NOT_CONNECTED] }
+    FridgeSummary:
+      type: object
+      required: [id, name, zones]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        zones:
+          type: array
+          items: { $ref: '#/components/schemas/ZoneSummary' }
+    FridgeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/FridgeSummary' }
+    OnboardingStatus:
+      type: object
+      required: [completed, minimumZones, maximumZones, maximumSensorsPerMetric, zoneDefaults]
+      properties:
+        completed: { type: boolean }
+        minimumZones: { type: integer, const: 3 }
+        maximumZones: { type: integer, const: 6 }
+        maximumSensorsPerMetric: { type: integer, const: 4 }
+        zoneDefaults:
+          type: array
+          items: { $ref: '#/components/schemas/ZoneDefault' }
+        fridge:
+          oneOf:
+            - $ref: '#/components/schemas/FridgeSummary'
+            - type: 'null'
+    OnboardingStatusEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/OnboardingStatus' }

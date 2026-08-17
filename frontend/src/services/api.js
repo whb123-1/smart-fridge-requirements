@@ -1,4 +1,18 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const env = import.meta.env || {}
+const API_BASE_URL = String(env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const LEGACY_REMOTE_ENABLED = env.VITE_LEGACY_API_ENABLED === 'true'
+let accessToken = ''
+let refreshPromise = null
+
+export class ApiError extends Error {
+  constructor(message, code = 'API_ERROR', status = 0, fields = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+    this.status = status
+    this.fields = fields
+  }
+}
 
 const wait = (data, delay = 280) => new Promise(resolve => setTimeout(() => resolve(data), delay))
 
@@ -98,13 +112,47 @@ function normalizeRecipe(template, inventory, prompt, index) {
   }
 }
 
+function rememberSession(data) {
+  accessToken = data?.accessToken || ''
+  return data
+}
+
+async function readResponse(response) {
+  const text = await response.text()
+  return text ? JSON.parse(text) : null
+}
+
+async function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    }).then(async response => {
+      const payload = await readResponse(response)
+      if (!response.ok) {
+        accessToken = ''
+        throw new ApiError(payload?.message || '会话已失效', payload?.code || 'UNAUTHENTICATED', response.status, payload?.data?.fields)
+      }
+      return rememberSession(payload?.data)
+    }).finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  })
-  if (!response.ok) throw new Error(`API request failed: ${response.status}`)
-  return response.json()
+  const { auth = true, retry = true, headers = {}, ...fetchOptions } = options
+  const requestHeaders = { Accept: 'application/json', ...headers }
+  if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !requestHeaders['Content-Type']) requestHeaders['Content-Type'] = 'application/json'
+  if (auth && accessToken) requestHeaders.Authorization = `Bearer ${accessToken}`
+  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', headers: requestHeaders, ...fetchOptions })
+  if (response.status === 401 && auth && retry) {
+    await refreshAccessToken()
+    return request(path, { ...options, retry: false })
+  }
+  const payload = await readResponse(response)
+  if (!response.ok) throw new ApiError(payload?.message || `请求失败 (${response.status})`, payload?.code || 'API_ERROR', response.status, payload?.data?.fields || {})
+  return payload?.data
 }
 
 function mockBatch({ inventory = [], prompt = '', count = 3 }) {
@@ -135,8 +183,21 @@ function mockNutrition({ dishName = '', amount, unit = '份' }) {
 }
 
 export const api = {
-  login: credentials => wait({ token: 'mock-token', user: { name: credentials.account || '林知夏' } }),
-  register: profile => wait({ token: 'mock-token', user: profile }),
+  login: credentials => request('/api/v1/auth/login', { method: 'POST', auth: false, body: JSON.stringify(credentials) }).then(rememberSession),
+  register: profile => request('/api/v1/auth/register', { method: 'POST', auth: false, body: JSON.stringify(profile) }).then(rememberSession),
+  refreshSession: refreshAccessToken,
+  logout: async () => { try { return await request('/api/v1/auth/logout', { method: 'POST', auth: false }) } finally { accessToken = '' } },
+  clearAccessToken: () => { accessToken = '' },
+  getMe: () => request('/api/v1/me'),
+  updateMe: profile => request('/api/v1/me', { method: 'PATCH', body: JSON.stringify(profile) }),
+  changePassword: password => request('/api/v1/me/password', { method: 'PATCH', body: JSON.stringify(password) }),
+  getOnboarding: () => request('/api/v1/onboarding'),
+  initializeOnboarding: (payload, idempotencyKey) => request('/api/v1/onboarding/initialize', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(payload),
+  }),
+  getFridges: () => request('/api/v1/fridges'),
   getDashboard: () => wait({ updatedAt: new Date().toISOString() }),
   addFood: food => wait({ ...food, id: Date.now() }),
   updateFood: food => wait(food),
@@ -147,12 +208,12 @@ export const api = {
   updateShoppingItem: item => wait(item),
 
   generateRecipeBatch: async requestBody => {
-    if (API_BASE_URL) return request('/api/recipes/generate', { method: 'POST', body: JSON.stringify(requestBody) })
+    if (API_BASE_URL && LEGACY_REMOTE_ENABLED) return request('/api/recipes/generate', { method: 'POST', body: JSON.stringify(requestBody) })
     return wait({ recipes: mockBatch(requestBody) }, 520)
   },
 
   getNameSuggestions: async requestBody => {
-    if (API_BASE_URL) {
+    if (API_BASE_URL && LEGACY_REMOTE_ENABLED) {
       const params = new URLSearchParams({ query: requestBody.query || '', context: requestBody.context || 'ingredient', limit: String(requestBody.limit || 6) })
       return request(`/api/name-suggestions?${params}`)
     }
@@ -160,7 +221,7 @@ export const api = {
   },
 
   estimateMealNutrition: async requestBody => {
-    if (API_BASE_URL) return request('/api/meals/estimate-nutrition', { method: 'POST', body: JSON.stringify(requestBody) })
+    if (API_BASE_URL && LEGACY_REMOTE_ENABLED) return request('/api/meals/estimate-nutrition', { method: 'POST', body: JSON.stringify(requestBody) })
     return wait(mockNutrition(requestBody), 360)
   },
 }

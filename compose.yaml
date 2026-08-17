@@ -1,0 +1,78 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-xianzhi}
+      MYSQL_USER: ${MYSQL_USER:-xianzhi}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+      TZ: UTC
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci", "--default-time-zone=+00:00"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: api,dev
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
+      MYSQL_USER: ${MYSQL_USER:-xianzhi}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_ISSUER: ${JWT_ISSUER:-xianzhi-api}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-PT15M}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-P30D}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-replace-with-a-32-byte-minimum-development-secret}
+      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build:
+      context: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: worker,dev
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
+      MYSQL_USER: ${MYSQL_USER:-xianzhi}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_ISSUER: ${JWT_ISSUER:-xianzhi-api}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-PT15M}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-P30D}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-replace-with-a-32-byte-minimum-development-secret}
+      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  redis_data:

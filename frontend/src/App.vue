@@ -1,6 +1,8 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from './services/api'
+import { logout, session, setFridge } from './session'
 import pixelPet from './assets/xianling-pixel-pet-transparent.png'
 import FridgeModel from './components/FridgeModel.vue'
 import AssistantPet from './components/AssistantPet.vue'
@@ -8,7 +10,10 @@ import NameSuggestionInput from './components/NameSuggestionInput.vue'
 import DeliciousSynthesis from './components/DeliciousSynthesis.vue'
 import { clampZoneCount, MAX_ZONES, MIN_ZONES, ZONE_KINDS } from './components/fridgeLayouts'
 
-const page = ref('home')
+const route = useRoute()
+const router = useRouter()
+const isAppRoute = computed(() => route.name === 'app')
+const page = ref(String(route.params.page || 'home'))
 const unit = ref('C')
 const showAdd = ref(false)
 const showFoodEditor = ref(false)
@@ -45,6 +50,7 @@ const mealEstimate = ref(null)
 const mealEstimateError = ref('')
 const selectedRestockIds = ref([])
 const foodUpdateVersions = new Map()
+const USERNAME_PATTERN = /^[a-z0-9_]{3,32}$/
 
 const foodDraft = reactive({})
 const shopDraft = reactive({ id: null, name: '', group: '其他', amount: '1 份', note: '', status: 'pending' })
@@ -120,6 +126,8 @@ const restockCandidates = reactive([
 
 const preferences = reactive({ tastes: ['清淡', '少油', '微辣'], cuisine: ['家常菜', '粤菜'], allergies: ['花生'], dislikes: ['香菜'], goal: '减脂', target: 1650 })
 const profile = reactive({ name: '林知夏', email: 'xia@example.com', currentPassword: '', password: '', confirmPassword: '' })
+profile.username = ''
+profile.timezone = 'Asia/Shanghai'
 const mealRecords = reactive([
   { id: 1, time: '08:10', name: '早餐', food: '无糖酸奶燕麦杯 · 1 份', kcal: 268, icon: '🥣' },
   { id: 2, time: '12:35', name: '午餐', food: '番茄牛肉盖饭 · 0.8 份', kcal: 642, icon: '🍛' },
@@ -168,13 +176,13 @@ const categoryIcons = Object.freeze({ 蔬菜: '🥬', 水果: '🍎', 水产: '�
 
 function icon(name, size = 20) {
   const paths = {
-    box: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z"/><path d="M4 6.5v13M8 8h8"/>', spark: '<path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="m18.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', check: '<path d="m5 12 4 4L19 6"/>', heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 0 0 1.1-8.9z"/>', close: '<path d="M6 6l12 12M18 6 6 18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6v.2h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pan: '<path d="M3 13h13a5 5 0 0 1-10 0H3z"/><path d="M16 13h5M8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4"/>', trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>', edit: '<path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/>', download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', thermometer: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z"/><path d="M12 9v7"/>', drop: '<path d="M12 3s5 5.3 5 10a5 5 0 0 1-10 0c0-4.7 5-10 5-10Z"/>', alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/>', arrow: '<path d="m14.5 5-7 7 7 7"/><path d="M8 12h12"/>', list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+    box: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z"/><path d="M4 6.5v13M8 8h8"/>', spark: '<path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="m18.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', check: '<path d="m5 12 4 4L19 6"/>', heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 0 0 1.1-8.9z"/>', close: '<path d="M6 6l12 12M18 6 6 18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6v.2h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pan: '<path d="M3 13h13a5 5 0 0 1-10 0H3z"/><path d="M16 13h5M8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4"/>', trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>', edit: '<path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/>', download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', thermometer: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z"/><path d="M12 9v7"/>', drop: '<path d="M12 3s5 5.3 5 10a5 5 0 0 1-10 0c0-4.7 5-10 5-10Z"/>', alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/>', arrow: '<path d="m14.5 5-7 7 7 7"/><path d="M8 12h12"/>', list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>', logout: '<path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/>',
   }
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.spark}</svg>`
 }
 
 function notify(message) { toast.value = message; setTimeout(() => { if (toast.value === message) toast.value = '' }, 2600) }
-function go(target) { page.value = target; search.value = '' }
+function go(target) { page.value = target; search.value = ''; router.push({ name: 'app', params: { page: target } }) }
 function temp(value) { return unit.value === 'C' ? Number(value).toFixed(1) : (Number(value) * 9 / 5 + 32).toFixed(1) }
 function tempUnit() { return unit.value === 'C' ? '°C' : '°F' }
 function dateAfter(days) { const date = new Date('2026-08-14T00:00:00'); date.setDate(date.getDate() + Number(days)); return date.toISOString().slice(0, 10) }
@@ -375,17 +383,94 @@ function setZoneCount(value, silent = false) {
 }
 function toggleTag(collection, value) { const index = collection.indexOf(value); index >= 0 ? collection.splice(index, 1) : collection.push(value) }
 function removeInventoryHistory(record) { const records = histories[record.historyKey]; const index = records.findIndex(item => item.id === record.id); if (index >= 0) records.splice(index, 1); notify('库存动态已删除') }
-function saveProfile() {
+async function saveProfile() {
+  const username = profile.username.trim().toLowerCase()
+  if (!USERNAME_PATTERN.test(username)) return notify('用户名只能包含 3-32 位小写字母、数字和下划线')
   if (profile.password && (profile.password.length < 8 || profile.password !== profile.confirmPassword)) return notify('新密码至少 8 位，且两次输入一致')
-  api.updatePreferences({ ...preferences, fridge: { zoneCount: zoneCount.value, zones: zoneRegistry.map(({ id, name, kind, enabled, targetTemperature, targetHumidity }) => ({ id, name, kind, enabled, targetTemperature, targetHumidity })) } })
-  profile.currentPassword = ''
-  profile.password = ''
-  profile.confirmPassword = ''
-  notify('账户、偏好与分区目标已保存')
+  if (profile.password && !profile.currentPassword) return notify('请输入原密码')
+  try {
+    const updatedUser = await api.updateMe({
+      username,
+      displayName: profile.name.trim(),
+      timezone: profile.timezone,
+      temperatureUnit: unit.value,
+    })
+    session.user = updatedUser
+    Object.assign(profile, { username: updatedUser.username, name: updatedUser.displayName, email: updatedUser.email, timezone: updatedUser.timezone })
+    if (profile.password) await api.changePassword({ currentPassword: profile.currentPassword, newPassword: profile.password })
+    await api.updatePreferences({ ...preferences, fridge: { zoneCount: zoneCount.value, zones: zoneRegistry.map(({ id, name, kind, enabled, targetTemperature, targetHumidity }) => ({ id, name, kind, enabled, targetTemperature, targetHumidity })) } })
+    profile.currentPassword = ''
+    profile.password = ''
+    profile.confirmPassword = ''
+    notify('账户、偏好与分区目标已保存')
+  } catch (exception) {
+    if (exception.code === 'USERNAME_ALREADY_REGISTERED') notify('该用户名已被占用，请更换后重试')
+    else if (exception.code === 'INVALID_CURRENT_PASSWORD') notify('原密码不正确')
+    else notify(exception.message || '设置保存失败，请稍后重试')
+  }
 }
 function navigateToZone(zone) { inventoryFilter.value = zone.name; inventoryType.value = '全部'; go('inventory') }
 
+function applyFridgeSummary(fridge) {
+  if (!fridge?.zones?.length) return
+  fridge.zones.forEach((source, index) => {
+    const target = zoneRegistry[index]
+    if (!target) return
+    const temperature = Number(source.targetTemperatureC)
+    const humidity = Number(source.targetHumidityPct)
+    const sensorSlots = [
+      ...Array.from({ length: source.temperatureSensorCount || 0 }, (_, slot) => ({ id: `${source.id}-T-${slot + 1}`, name: `温度槽位 ${slot + 1}`, type: 'temperature', value: temperature, unit: '°C', update: '待绑定' })),
+      ...Array.from({ length: source.humiditySensorCount || 0 }, (_, slot) => ({ id: `${source.id}-H-${slot + 1}`, name: `湿度槽位 ${slot + 1}`, type: 'humidity', value: humidity, unit: '%', update: '待绑定' })),
+    ]
+    Object.assign(target, {
+      apiId: source.id,
+      kind: String(source.kind).toLowerCase(),
+      enabled: true,
+      name: source.name,
+      temp: temperature,
+      humidity,
+      targetTemperature: temperature,
+      targetHumidity: humidity,
+      state: 'normal',
+      update: sensorSlots.length ? '传感器待绑定' : '未接入传感器',
+      items: 0,
+      sensors: sensorSlots,
+    })
+  })
+  zoneCount.value = fridge.zones.length
+  setZoneCount(fridge.zones.length, true)
+}
+
+async function loadFridgeSummary() {
+  if (!isAppRoute.value) return
+  try {
+    let fridge = session.fridge
+    if (!fridge) {
+      const fridges = await api.getFridges()
+      fridge = fridges?.[0] || null
+      if (fridge) setFridge(fridge)
+    }
+    if (fridge) applyFridgeSummary(fridge)
+    if (session.user) {
+      Object.assign(profile, {
+        name: session.user.displayName,
+        username: session.user.username,
+        email: session.user.email,
+        timezone: session.user.timezone,
+      })
+      unit.value = session.user.temperatureUnit || 'C'
+    }
+  } catch { notify('冰箱配置同步失败，请刷新重试') }
+}
+
+async function performLogout() {
+  await logout()
+  await router.replace('/login')
+}
+
 watch(zoneCount, value => setZoneCount(value, true), { immediate: true })
+watch(() => route.params.page, value => { if (route.name === 'app') page.value = String(value || 'home') })
+watch(isAppRoute, active => { if (active) loadFridgeSummary() }, { immediate: true })
 
 async function assistantRoute(question) {
   const text = question.toLowerCase()
@@ -410,7 +495,14 @@ async function sendAssistantMessage(preset = '') {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'home-shell': page === 'home' }">
+  <RouterView v-if="!isAppRoute" />
+  <div v-else class="app-shell" :class="{ 'home-shell': page === 'home' }">
+    <div class="phase-status" aria-label="数据状态">
+      <span><i></i>冰箱配置已同步</span>
+      <em>业务数据演示</em>
+      <strong>{{ session.user?.displayName }}</strong>
+      <button title="退出登录" aria-label="退出登录" @click="performLogout"><span v-html="icon('logout', 17)"></span></button>
+    </div>
     <main :class="{ 'home-main': page === 'home' }">
       <div class="content" :class="{ 'home-content': page === 'home' }">
         <button v-if="page !== 'home'" class="page-home-link" title="返回冰箱首页" aria-label="返回冰箱首页" @click="go('home')"><span v-html="icon('arrow', 18)"></span><span>返回首页</span></button>
@@ -418,7 +510,7 @@ async function sendAssistantMessage(preset = '') {
         <template v-if="page === 'home'">
           <section class="home-console" aria-label="冰箱总览">
             <div class="orbit-status orbit-panel orbit-status-end"><div><span><i class="online-dot"></i>{{ zones.reduce((sum, zone) => sum + zone.sensors.length, 0) }} 个传感器在线</span><span>刚刚同步</span><span class="unit-switch home-unit"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></div>
-            <div class="orbit-left orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-chill" @click="go('inventory')"><span v-html="icon('box', 21)"></span><b>库存</b><small>{{ foods.length }} 项在库</small></button><button class="home-task fridge-control tone-freeze" @click="go('expiry')"><span v-html="icon('clock', 21)"></span><b>保质期</b><small>{{ alerts.length }} 项待处理</small></button><button class="home-task fridge-control tone-fresh" @click="go('recipes')"><span v-html="icon('book', 21)"></span><b>菜谱</b><small>{{ recipes.length }} 道已保存</small></button></div><button v-if="warningZones.length" class="home-warning" @click="go('environment')"><span v-html="icon('alert', 18)"></span><span><small>分区温度异常</small><b>{{ warningZones.length }} 个分区需要检查</b><em>查看全部环境提醒</em></span></button></div>
+            <div class="orbit-left orbit-panel" :class="{ 'has-warning': warningZones.length }"><div class="home-task-grid"><button class="home-task fridge-control tone-chill" @click="go('inventory')"><span v-html="icon('box', 21)"></span><b>库存</b><small>{{ foods.length }} 项在库</small></button><button class="home-task fridge-control tone-freeze" @click="go('expiry')"><span v-html="icon('clock', 21)"></span><b>保质期</b><small>{{ alerts.length }} 项待处理</small></button><button class="home-task fridge-control tone-fresh" @click="go('recipes')"><span v-html="icon('book', 21)"></span><b>菜谱</b><small>{{ recipes.length }} 道已保存</small></button><button v-if="!warningZones.length" class="home-task fridge-control tone-variable" @click="go('environment')"><span v-html="icon('thermometer', 21)"></span><b>环境状态</b><small>温度正常</small></button></div><button v-if="warningZones.length" class="home-warning" @click="go('environment')"><span v-html="icon('alert', 18)"></span><span><small>分区温度异常</small><b>{{ warningZones.length }} 个分区需要检查</b><em>查看全部环境提醒</em></span></button></div>
             <article class="center-fridge" :class="`fridge-count-${zones.length}`" aria-label="冰箱分区状态"><FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" /></article>
             <div class="orbit-right-rail orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button><button class="home-task fridge-control tone-synthesis" @click="go('synthesis')"><span v-html="icon('pan', 21)"></span><b>美味合成</b><small>拖食材配菜谱</small></button></div></div>
           </section>
@@ -466,7 +558,7 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-else-if="page === 'settings'">
           <section class="page-intro"><div><p class="eyebrow">账户、偏好与冰箱分区</p><h1>设置</h1><p>过敏与忌口会作为菜谱推荐的硬性排除条件。</p></div><button class="primary-btn" @click="saveProfile">保存更改</button></section><section class="settings-layout"><div class="settings-main"><article class="setting-card"><div class="setting-title"><span v-html="icon('spark', 22)"></span><div><h2>饮食偏好</h2><p>推荐会自动遵循这些选择</p></div></div><label>口味偏好</label><div class="choice-row"><button v-for="taste in ['清淡', '少油', '低盐', '微辣', '中辣', '少糖']" :key="taste" :class="{ selected: preferences.tastes.includes(taste) }" @click="toggleTag(preferences.tastes, taste)"><span v-html="icon('check', 14)"></span>{{ taste }}</button></div><label>菜系偏好</label><div class="choice-row"><button v-for="cuisine in ['家常菜', '粤菜', '川菜', '日料', '轻食']" :key="cuisine" :class="{ selected: preferences.cuisine.includes(cuisine) }" @click="toggleTag(preferences.cuisine, cuisine)"><span v-html="icon('check', 14)"></span>{{ cuisine }}</button></div><div class="field-pair"><label>饮食目标<select v-model="preferences.goal"><option>减脂</option><option>增肌</option><option>均衡饮食</option><option>控制热量</option></select></label><label>每日热量目标<div class="input-suffix"><input v-model.number="preferences.target" type="number" /><span>千卡</span></div></label></div></article>
-            <article class="setting-card"><div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与传感器</h2><p>当前值来自传感器，只能设置理想温湿度。</p></div><div class="zone-count-control" aria-label="分区数量"><span>分区数量</span><div><button v-for="count in [3, 4, 5, 6]" :key="count" type="button" :class="{ selected: zoneCount === count }" :aria-pressed="zoneCount === count" @click="setZoneCount(count)">{{ count }}</button></div></div></div><p class="zone-count-note">减少分区只会隐藏对应数据，重新增加后可恢复名称、传感器和库存。</p><div v-for="zone in zones" :key="zone.id" class="zone-editor"><div class="zone-editor-top zone-target-editor"><span class="zone-icon" :style="{ background: zone.color }"></span><input :value="zone.name" aria-label="分区名称" maxlength="12" @change="updateZoneName(zone, $event.target.value)" /><label>理想温度<input v-model.number="zone.targetTemperature" type="number" step="0.1" /><small>°C</small></label><label>理想湿度<input v-model.number="zone.targetHumidity" type="number" /><small>%</small></label></div><div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp.toFixed(1) }} °C</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity }} %</b></span><small>{{ zone.update }} 更新 · 实测值不可手动修改</small></div><div class="sensor-list"><div v-for="sensor in zone.sensors" :key="sensor.id" class="sensor-chip"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度传感器' : '湿度传感器' }} · {{ sensor.update }}</small></div><strong>{{ sensor.value }} {{ sensor.unit }}</strong><button title="移除传感器" @click="zone.sensors.splice(zone.sensors.indexOf(sensor), 1)">×</button></div><button class="add-sensor-btn" @click="openSensorEditor(zone)"><span v-html="icon('plus', 15)"></span>添加传感器</button></div></div></article></div><aside class="account-card"><span class="avatar large-avatar">{{ profile.name.slice(0, 1) }}</span><h2>账户信息</h2><label>姓名<input v-model="profile.name" /></label><label>邮箱<input v-model="profile.email" type="email" /></label><hr /><h3>修改密码</h3><label>原密码<input v-model="profile.currentPassword" type="password" /></label><label>新密码<input v-model="profile.password" type="password" placeholder="至少 8 位" /></label><label>确认新密码<input v-model="profile.confirmPassword" type="password" /></label><div class="account-unit"><span>温度单位</span><span class="unit-switch"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></aside></section>
+            <article class="setting-card"><div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与传感器</h2><p>当前值来自传感器，只能设置理想温湿度。</p></div><div class="zone-count-control" aria-label="分区数量"><span>分区数量</span><div><button v-for="count in [3, 4, 5, 6]" :key="count" type="button" :class="{ selected: zoneCount === count }" :aria-pressed="zoneCount === count" @click="setZoneCount(count)">{{ count }}</button></div></div></div><p class="zone-count-note">减少分区只会隐藏对应数据，重新增加后可恢复名称、传感器和库存。</p><div v-for="zone in zones" :key="zone.id" class="zone-editor"><div class="zone-editor-top zone-target-editor"><span class="zone-icon" :style="{ background: zone.color }"></span><input :value="zone.name" aria-label="分区名称" maxlength="12" @change="updateZoneName(zone, $event.target.value)" /><label>理想温度<input v-model.number="zone.targetTemperature" type="number" step="0.1" /><small>°C</small></label><label>理想湿度<input v-model.number="zone.targetHumidity" type="number" /><small>%</small></label></div><div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp.toFixed(1) }} °C</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity }} %</b></span><small>{{ zone.update }} 更新 · 实测值不可手动修改</small></div><div class="sensor-list"><div v-for="sensor in zone.sensors" :key="sensor.id" class="sensor-chip"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度传感器' : '湿度传感器' }} · {{ sensor.update }}</small></div><strong>{{ sensor.value }} {{ sensor.unit }}</strong><button title="移除传感器" @click="zone.sensors.splice(zone.sensors.indexOf(sensor), 1)">×</button></div><button class="add-sensor-btn" @click="openSensorEditor(zone)"><span v-html="icon('plus', 15)"></span>添加传感器</button></div></div></article></div><aside class="account-card"><span class="avatar large-avatar">{{ profile.name.slice(0, 1) }}</span><h2>账户信息</h2><label>姓名<input v-model="profile.name" /></label><label>用户名<input v-model.trim="profile.username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-z0-9_]{3,32}" /></label><label>邮箱<input v-model="profile.email" type="email" readonly /></label><hr /><h3>修改密码</h3><label>原密码<input v-model="profile.currentPassword" type="password" /></label><label>新密码<input v-model="profile.password" type="password" placeholder="至少 8 位" /></label><label>确认新密码<input v-model="profile.confirmPassword" type="password" /></label><div class="account-unit"><span>温度单位</span><span class="unit-switch"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></aside></section>
         </template>
       </div>
     </main>
