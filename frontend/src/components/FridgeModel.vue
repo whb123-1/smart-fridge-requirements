@@ -215,7 +215,9 @@ function labelTexture(zone, kind, compact = false) {
   context.strokeStyle = '#f8fbff'
   context.lineWidth = 11
   const nameWidth = compact ? 580 : 615
-  let nameSize = compact ? 104 : 114
+  const threeZoneLabel = currentSpec.count === 3
+  const expandedChillLabel = currentSpec.count === 5 && zone.id === 5
+  let nameSize = threeZoneLabel ? 86 : expandedChillLabel ? 82 : compact ? 104 : 114
   do {
     context.font = `900 ${nameSize}px "YouYuan", "幼圆", "Noto Sans SC", sans-serif`
     if (context.measureText(zone.name).width <= nameWidth || nameSize <= 64) break
