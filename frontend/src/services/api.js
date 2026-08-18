@@ -212,6 +212,43 @@ export const api = {
     body: JSON.stringify(payload),
   }),
   getFridges: () => request('/api/v1/fridges'),
+  getEnvironment: fridgeId => request(`/api/v1/fridges/${fridgeId}/environment`),
+  getZoneReadings: (zoneId, filters = {}) => request(`/api/v1/zones/${zoneId}/readings${queryString(filters)}`),
+  getZoneDevices: zoneId => request(`/api/v1/zones/${zoneId}/devices`),
+  getZoneSensors: zoneId => request(`/api/v1/zones/${zoneId}/sensors`),
+  createDevice: (zoneId, payload) => request(`/api/v1/zones/${zoneId}/devices`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  updateDevice: (id, payload) => request(`/api/v1/devices/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  deleteDevice: id => request(`/api/v1/devices/${id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
+  rotateDeviceCredentials: id => request(`/api/v1/devices/${id}/credentials/rotate`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
+  getDeviceSensors: id => request(`/api/v1/devices/${id}/sensors`),
+  bindDeviceSensor: (id, payload) => request(`/api/v1/devices/${id}/sensors`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  unbindDeviceSensor: (deviceId, sensorId) => request(`/api/v1/devices/${deviceId}/sensors/${sensorId}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
+  getNotifications: filters => request(`/api/v1/notifications${queryString(filters || {})}`),
+  updateNotification: (id, payload) => request(`/api/v1/notifications/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  getDebugTelemetryScenarios: () => request('/api/v1/debug/telemetry/scenarios'),
+  createDebugTelemetryScenario: payload => request('/api/v1/debug/telemetry/scenarios', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  updateDebugTelemetryScenario: (id, payload) => request(`/api/v1/debug/telemetry/scenarios/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  deleteDebugTelemetryScenario: id => request(`/api/v1/debug/telemetry/scenarios/${id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
   getDashboard: () => wait({ updatedAt: new Date().toISOString() }),
   listInventoryItems: filters => request(`/api/v1/inventory/items${queryString(filters || {})}`),
   createInventoryItem: payload => request('/api/v1/inventory/items', {

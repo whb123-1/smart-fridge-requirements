@@ -100,7 +100,7 @@ public final class InventoryContracts {
     public record AssessmentView(
             UUID id, Instant estimatedExpiryAt, Instant baseExpiryAt, BigDecimal cumulativeRiskMinutes,
             AssessmentSource estimationSource, String confidence, AssessmentStatus safetyStatus,
-            String explanation, Instant calculatedAt) { }
+            String explanation, String environmentImpacts, Instant calculatedAt) { }
 
     public record BatchView(
             UUID id, UUID zoneId, Instant storedAt, Instant openedAt, Instant packageExpiresAt,

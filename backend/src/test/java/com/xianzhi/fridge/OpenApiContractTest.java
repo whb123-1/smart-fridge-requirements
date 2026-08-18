@@ -24,7 +24,10 @@ class OpenApiContractTest {
                 "/inventory/items", "/inventory/items/{id}", "/inventory/items/{id}/batches",
                 "/inventory/batches/{id}", "/inventory/batches/{id}/transactions", "/expiry",
                 "/inventory/batches/{id}/assessments", "/catalog/suggestions", "/catalog/weight-estimates",
-                "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store"));
+                "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store",
+                "/zones/{id}/devices", "/zones/{id}/sensors", "/devices/{id}", "/devices/{id}/credentials/rotate", "/devices/{id}/sensors",
+                "/devices/{deviceId}/sensors/{sensorId}", "/zones/{id}/readings", "/fridges/{id}/environment",
+                "/notifications", "/notifications/{id}", "/debug/telemetry/scenarios", "/debug/telemetry/scenarios/{id}"));
 
         Map<String, Object> components = (Map<String, Object>) root.get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

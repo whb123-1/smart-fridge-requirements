@@ -1,0 +1,9 @@
+spring:
+  flyway:
+    enabled: false
+  main:
+    web-application-type: none
+
+app:
+  telemetry:
+    enabled: true

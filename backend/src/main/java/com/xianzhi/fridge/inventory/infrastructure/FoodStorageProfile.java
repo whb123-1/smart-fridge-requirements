@@ -22,10 +22,27 @@ public class FoodStorageProfile {
     @Column(name = "unopened_hours") private Integer unopenedHours;
     @Column(name = "opened_hours") private Integer openedHours;
     @Column(name = "risk_coefficient", nullable = false, precision = 8, scale = 3) private BigDecimal riskCoefficient;
+    @Column(name = "temperature_moderate_deviation_c", nullable = false, precision = 8, scale = 3) private BigDecimal temperatureModerateDeviationC;
+    @Column(name = "temperature_severe_deviation_c", nullable = false, precision = 8, scale = 3) private BigDecimal temperatureSevereDeviationC;
+    @Column(name = "humidity_moderate_deviation_pct", nullable = false, precision = 8, scale = 3) private BigDecimal humidityModerateDeviationPct;
+    @Column(name = "humidity_severe_deviation_pct", nullable = false, precision = 8, scale = 3) private BigDecimal humiditySevereDeviationPct;
+    @Column(name = "mild_risk_multiplier", nullable = false, precision = 8, scale = 3) private BigDecimal mildRiskMultiplier;
+    @Column(name = "moderate_risk_multiplier", nullable = false, precision = 8, scale = 3) private BigDecimal moderateRiskMultiplier;
+    @Column(name = "severe_risk_multiplier", nullable = false, precision = 8, scale = 3) private BigDecimal severeRiskMultiplier;
+    @Column(name = "high_risk_minutes", nullable = false, precision = 14, scale = 3) private BigDecimal highRiskMinutes;
     protected FoodStorageProfile() { }
     public FoodCategory getCategory() { return category; }
     public String getZoneKind() { return zoneKind; }
     public int getProfileVersion() { return profileVersion; }
     public Integer getUnopenedHours() { return unopenedHours; }
     public Integer getOpenedHours() { return openedHours; }
+    public BigDecimal getRiskCoefficient() { return riskCoefficient; }
+    public BigDecimal getTemperatureModerateDeviationC() { return temperatureModerateDeviationC; }
+    public BigDecimal getTemperatureSevereDeviationC() { return temperatureSevereDeviationC; }
+    public BigDecimal getHumidityModerateDeviationPct() { return humidityModerateDeviationPct; }
+    public BigDecimal getHumiditySevereDeviationPct() { return humiditySevereDeviationPct; }
+    public BigDecimal getMildRiskMultiplier() { return mildRiskMultiplier; }
+    public BigDecimal getModerateRiskMultiplier() { return moderateRiskMultiplier; }
+    public BigDecimal getSevereRiskMultiplier() { return severeRiskMultiplier; }
+    public BigDecimal getHighRiskMinutes() { return highRiskMinutes; }
 }

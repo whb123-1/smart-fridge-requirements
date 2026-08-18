@@ -24,6 +24,8 @@
     <archunit.version>1.4.1</archunit.version>
     <jacoco.version>0.8.15</jacoco.version>
     <testcontainers.version>2.0.5</testcontainers.version>
+    <paho.version>1.2.5</paho.version>
+    <shedlock.version>6.3.0</shedlock.version>
   </properties>
 
   <dependencies>
@@ -54,6 +56,21 @@
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.paho</groupId>
+      <artifactId>org.eclipse.paho.mqttv5.client</artifactId>
+      <version>${paho.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-spring</artifactId>
+      <version>${shedlock.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-provider-jdbc-template</artifactId>
+      <version>${shedlock.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>

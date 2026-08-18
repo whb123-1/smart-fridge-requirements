@@ -52,6 +52,8 @@ const selectedRestockIds = ref([])
 const foodUpdateVersions = new Map()
 const shoppingListId = ref(null)
 const expiryRecords = reactive([])
+const environmentState = ref(null)
+const environmentNotifications = reactive([])
 const USERNAME_PATTERN = /^[a-z0-9_]{3,32}$/
 
 const foodDraft = reactive({})
@@ -82,6 +84,7 @@ const zoneRegistry = reactive([
   { id: 5, kind: 'chill', enabled: false, name: '扩展冷藏区', temp: 4, humidity: 65, targetTemperature: 4, targetHumidity: 65, state: 'normal', update: '未接入', items: 0, color: '#79a9c4', sensors: [] },
   { id: 6, kind: 'fresh', enabled: false, name: '扩展保鲜区', temp: 2, humidity: 80, targetTemperature: 2, targetHumidity: 80, state: 'normal', update: '未接入', items: 0, color: '#78b998', sensors: [] },
 ])
+zoneRegistry.forEach(zone => Object.assign(zone, { temp: null, humidity: null, state: 'no_sensor', update: '正在同步', sensors: [], sensorSlots: [], incidents: [], affectedBatchIds: [] }))
 
 const zones = computed(() => zoneRegistry.filter(zone => zone.enabled))
 
@@ -128,7 +131,9 @@ const histories = reactive({
 const assistantMessages = reactive([{ id: 1, role: 'assistant', text: '你好，我是鲜知助手。可以帮你推荐菜谱、检查保质期、评估饮食或生成购物清单。' }])
 
 const alerts = computed(() => foods.filter(food => food.days <= 3))
-const warningZones = computed(() => zones.value.filter(zone => zone.state === 'warning'))
+const warningZones = computed(() => zones.value.filter(zone => ['warning', 'stale'].includes(zone.state)))
+const onlineSensorCount = computed(() => Number(environmentState.value?.onlineSensorCount || 0))
+const lastEnvironmentSync = computed(() => relativeTime(environmentState.value?.lastSyncedAt))
 const totalCalories = computed(() => mealRecords.reduce((sum, meal) => sum + Number(meal.kcal || 0), 0))
 const caloriePercent = computed(() => Math.min(100, Math.round(totalCalories.value / preferences.target * 100)))
 const pendingShoppingCount = computed(() => shopping.filter(item => item.status === 'pending').length)
@@ -226,6 +231,72 @@ async function refreshShopping() {
   histories['采购记录'].splice(0, histories['采购记录'].length, ...shopping
     .filter(item => item.status === 'stored')
     .map(item => ({ id: item.id, title: item.name, meta: '采购入库 · 已完成', note: item.amount || '数量未记录' })))
+}
+
+function relativeTime(value) {
+  if (!value) return '尚无有效读数'
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000))
+  return minutes < 1 ? '刚刚同步' : minutes < 60 ? `${minutes} 分钟前同步` : `${Math.floor(minutes / 60)} 小时前同步`
+}
+function zoneStateLabel(state) { return ({ normal: '正常', warning: '异常', stale: '数据陈旧', no_sensor: '无传感器' })[state] || '未知' }
+function zoneStateReason(zone) {
+  if (zone.state === 'stale') return '已超过 15 分钟没有有效读数，请检查设备连接。'
+  if (zone.state === 'no_sensor') return '该分区只有待绑定槽位，系统不会产生陈旧告警。'
+  if (zone.state === 'warning') return zone.incidents?.[0]?.reason === 'OUT_OF_RANGE' ? '读数已连续偏离安全范围 15 分钟。' : '读数正在偏离安全范围。'
+  return '当前温湿度在安全范围内。'
+}
+function applyEnvironment(remote, deviceGroups = []) {
+  environmentState.value = remote
+  const devicesByZone = new Map(deviceGroups.map(group => [String(group.zoneId), group]))
+  ;(remote?.zones || []).forEach(source => {
+    const target = zoneById(source.id)
+    if (!target) return
+    const temperature = source.metrics?.find(metric => metric.metric === 'TEMPERATURE')
+    const humidity = source.metrics?.find(metric => metric.metric === 'HUMIDITY')
+    const group = devicesByZone.get(String(source.id)) || { devices: [], slots: [] }
+    const devices = group.devices || []
+    const boundSensors = devices.flatMap(device => (device.sensors || []).map(sensor => ({
+      id: sensor.id, deviceId: device.id, name: sensor.name || `${sensor.metric === 'TEMPERATURE' ? '温度' : '湿度'}传感器`,
+      type: sensor.metric === 'TEMPERATURE' ? 'temperature' : 'humidity', value: sensor.lastValue == null ? '—' : Number(sensor.lastValue),
+      unit: sensor.metric === 'TEMPERATURE' ? '°C' : '%', update: relativeTime(sensor.lastObservedAt), quality: sensor.lastQuality || 'NO_DATA',
+    })))
+    Object.assign(target, {
+      temp: temperature?.valueCelsius == null ? null : Number(temperature.valueCelsius),
+      humidity: humidity?.displayValue == null ? null : Number(humidity.displayValue),
+      state: String(source.status || 'NO_SENSOR').toLowerCase(),
+      update: relativeTime([temperature?.lastReceivedAt, humidity?.lastReceivedAt].filter(Boolean).sort().at(-1)),
+      sensors: boundSensors,
+      sensorSlots: (group.slots || []).map(slot => ({
+        ...slot, type: slot.metric === 'TEMPERATURE' ? 'temperature' : 'humidity',
+        name: slot.name || `${slot.metric === 'TEMPERATURE' ? '温度' : '湿度'}槽位 ${slot.slotIndex + 1}`,
+        value: slot.lastValue == null ? '—' : Number(slot.lastValue), unit: slot.metric === 'TEMPERATURE' ? '°C' : '%',
+        update: relativeTime(slot.lastObservedAt), quality: slot.lastQuality || 'NO_DATA',
+      })),
+      incidents: source.activeIncidents || [], affectedBatchIds: source.affectedBatchIds || [],
+      onlineSensorCount: source.onlineSensorCount || 0, staleSensorCount: source.staleSensorCount || 0,
+    })
+  })
+}
+async function refreshEnvironment() {
+  const fridgeId = session.fridge?.id
+  if (!fridgeId) return
+  try {
+    const remote = await api.getEnvironment(fridgeId)
+    const deviceGroups = await Promise.all((remote.zones || []).map(async zone => ({
+      zoneId: zone.id,
+      devices: await api.getZoneDevices(zone.id),
+      slots: await api.getZoneSensors(zone.id),
+    })))
+    const notifications = await api.getNotifications({ unreadOnly: false })
+    applyEnvironment(remote, deviceGroups)
+    environmentNotifications.splice(0, environmentNotifications.length, ...(notifications || []).filter(item => item.type === 'ENVIRONMENT_ALERT' && !item.dismissedAt))
+  } catch (exception) {
+    environmentState.value = null
+    zones.value.forEach(zone => Object.assign(zone, { temp: null, humidity: null, state: 'no_sensor', update: '环境 API 暂不可用', sensors: [], sensorSlots: [], incidents: [] }))
+  }
+}
+async function markNotificationRead(item) {
+  try { await api.updateNotification(item.id, { read: true }); await refreshEnvironment() } catch (exception) { notify(exception.message || '提醒状态更新失败') }
 }
 
 async function ensureShoppingList() {
@@ -462,14 +533,10 @@ async function removeShoppingItem(item) { try { await api.deleteShoppingItem(ite
 function removePurchaseHistory(item) { const index = histories['采购记录'].indexOf(item); if (index >= 0) histories['采购记录'].splice(index, 1); notify('入库记录已删除') }
 function exportShopping() { const text = `鲜知购物清单\n${shopping.filter(item => item.status !== 'stored').map(item => `- ${item.group}｜${item.name} ${item.amount}（${statusLabel(item.status)}）`).join('\n')}`; const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = '鲜知购物清单.txt'; link.click(); URL.revokeObjectURL(url); notify('购物清单已导出') }
 
-function openSensorEditor(zone) { sensorZone.value = zone; Object.assign(sensorDraft, { name: '', type: 'temperature' }); showSensorEditor.value = true }
-function saveSensor() {
-  if (!sensorDraft.name.trim() || !sensorZone.value) return notify('请填写传感器名称')
-  const zone = sensorZone.value
-  const isTemperature = sensorDraft.type === 'temperature'
-  zone.sensors.push({ id: `${isTemperature ? 'T' : 'H'}-${100 + Math.floor(Math.random() * 900)}`, name: sensorDraft.name.trim(), type: sensorDraft.type, value: isTemperature ? zone.temp : zone.humidity, unit: isTemperature ? '°C' : '%', update: '待同步' })
-  showSensorEditor.value = false
-  notify(`${zone.name} 已添加${isTemperature ? '温度' : '湿度'}传感器`)
+async function removeBoundSensor(sensor) {
+  if (!sensor.deviceId) return
+  try { await api.unbindDeviceSensor(sensor.deviceId, sensor.id); await refreshEnvironment(); notify('传感器已解绑，逻辑槽位已恢复为待绑定') }
+  catch (exception) { notify(exception.message || '传感器解绑失败') }
 }
 function updateZoneName(zone, value) {
   const next = String(value || '').trim()
@@ -523,24 +590,20 @@ function applyFridgeSummary(fridge) {
     if (!target) return
     const temperature = Number(source.targetTemperatureC)
     const humidity = Number(source.targetHumidityPct)
-    const sensorSlots = [
-      ...Array.from({ length: source.temperatureSensorCount || 0 }, (_, slot) => ({ id: `${source.id}-T-${slot + 1}`, name: `温度槽位 ${slot + 1}`, type: 'temperature', value: temperature, unit: '°C', update: '待绑定' })),
-      ...Array.from({ length: source.humiditySensorCount || 0 }, (_, slot) => ({ id: `${source.id}-H-${slot + 1}`, name: `湿度槽位 ${slot + 1}`, type: 'humidity', value: humidity, unit: '%', update: '待绑定' })),
-    ]
     Object.assign(target, {
       id: source.id,
       apiId: source.id,
       kind: String(source.kind).toLowerCase(),
       enabled: true,
       name: source.name,
-      temp: temperature,
-      humidity,
+      temp: null,
+      humidity: null,
       targetTemperature: temperature,
       targetHumidity: humidity,
-      state: 'normal',
-      update: sensorSlots.length ? '传感器待绑定' : '未接入传感器',
+      state: 'no_sensor',
+      update: (source.temperatureSensorCount || source.humiditySensorCount) ? '传感器待绑定' : '未接入传感器',
       items: 0,
-      sensors: sensorSlots,
+      sensors: [],
     })
   })
   if (!zoneById(newFood.zoneId)) newFood.zoneId = fridge.zones[0]?.id || null
@@ -568,7 +631,7 @@ async function loadFridgeSummary() {
       })
       unit.value = session.user.temperatureUnit || 'C'
     }
-    await Promise.all([refreshInventory(), refreshShopping()])
+    await Promise.all([refreshInventory(), refreshShopping(), refreshEnvironment()])
   } catch { notify('冰箱配置同步失败，请刷新重试') }
 }
 
@@ -618,7 +681,7 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-if="page === 'home'">
           <section class="home-console" aria-label="冰箱总览">
-            <div class="orbit-status orbit-panel orbit-status-end"><div><span><i class="online-dot"></i>{{ zones.reduce((sum, zone) => sum + zone.sensors.length, 0) }} 个传感器在线</span><span>刚刚同步</span><span class="unit-switch home-unit"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></div>
+            <div class="orbit-status orbit-panel orbit-status-end"><div><span><i class="online-dot"></i>{{ onlineSensorCount }} 个传感器在线</span><span>{{ lastEnvironmentSync }}</span><span class="unit-switch home-unit"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></div>
             <div class="orbit-left orbit-panel" :class="{ 'has-warning': warningZones.length }"><div class="home-task-grid"><button class="home-task fridge-control tone-chill" @click="go('inventory')"><span v-html="icon('box', 21)"></span><b>库存</b><small>{{ foods.length }} 项在库</small></button><button class="home-task fridge-control tone-freeze" @click="go('expiry')"><span v-html="icon('clock', 21)"></span><b>保质期</b><small>{{ alerts.length }} 项待处理</small></button><button class="home-task fridge-control tone-fresh" @click="go('recipes')"><span v-html="icon('book', 21)"></span><b>菜谱</b><small>{{ recipes.length }} 道已保存</small></button><button v-if="!warningZones.length" class="home-task fridge-control tone-variable" @click="go('environment')"><span v-html="icon('thermometer', 21)"></span><b>环境状态</b><small>温度正常</small></button></div><button v-if="warningZones.length" class="home-warning" @click="go('environment')"><span v-html="icon('alert', 18)"></span><span><small>分区温度异常</small><b>{{ warningZones.length }} 个分区需要检查</b><em>查看全部环境提醒</em></span></button></div>
             <article class="center-fridge" :class="`fridge-count-${zones.length}`" aria-label="冰箱分区状态"><FridgeModel :zones="zones" :foods="foods" @zone-navigate="navigateToZone" /></article>
             <div class="orbit-right-rail orbit-panel"><div class="home-task-grid"><button class="home-task fridge-control tone-variable" @click="go('diet')"><span v-html="icon('spark', 21)"></span><b>饮食健康</b><small>{{ totalCalories }} / {{ preferences.target }} 千卡</small></button><button class="home-task fridge-control tone-fresh" @click="go('shopping')"><span v-html="icon('bag', 21)"></span><b>采购</b><small>{{ pendingShoppingCount }} 项待购买</small></button><button class="home-task fridge-control tone-smart" @click="go('settings')"><span v-html="icon('settings', 21)"></span><b>设置</b><small>{{ zones.length }} 个冰箱分区</small></button><button class="home-task fridge-control tone-synthesis" @click="go('synthesis')"><span v-html="icon('pan', 21)"></span><b>美味合成</b><small>拖食材配菜谱</small></button></div></div>
@@ -627,9 +690,9 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-else-if="page === 'environment'">
           <section class="page-intro"><div><p class="eyebrow">实时监测与异常聚合</p><h1>环境提醒</h1><p>温度异常的分区会统一显示，先检查门封、制冷和传感器位置。</p></div><button class="secondary-btn" @click="go('settings')"><span v-html="icon('settings', 18)"></span>管理分区目标</button></section>
-          <section class="environment-summary"><article><span v-html="icon('alert', 23)"></span><div><strong>{{ warningZones.length }}</strong><small>个分区温度异常</small></div></article><p>温度恢复正常后，已受影响食材的建议食用期限不会自动延长。</p></section>
-          <section v-if="warningZones.length" class="environment-list"><article v-for="zone in warningZones" :key="zone.id"><div class="environment-zone-icon" :style="{ background: zone.color }"><span v-html="icon('thermometer', 21)"></span></div><div><p class="eyebrow">{{ zone.update }} 更新</p><h2>{{ zone.name }}</h2><p>当前 {{ temp(zone.temp) }} {{ tempUnit() }}，理想 {{ temp(zone.targetTemperature) }} {{ tempUnit() }}，偏差 {{ Math.abs(zoneDeviation(zone)).toFixed(1) }} °C。</p><small>该分区有 {{ foods.filter(food => food.zoneId === zone.id).length }} 项库存，建议优先检查临期食材。</small></div><button class="secondary-btn" @click="navigateToZone(zone)">查看库存</button></article></section>
-          <section v-else class="empty-state"><span v-html="icon('check', 30)"></span><h1>所有分区温度正常</h1><p>当前传感器读数均在设定范围内。</p></section>
+          <section class="environment-summary"><article><span v-html="icon('alert', 23)"></span><div><strong>{{ warningZones.length }}</strong><small>个分区需要关注</small></div></article><p>状态区分正常、异常、数据陈旧和无传感器。环境恢复后，已累计的保质期风险不会减少。</p></section>
+          <section class="environment-list"><article v-for="zone in zones" :key="zone.id" :class="`environment-${zone.state}`"><div class="environment-zone-icon" :style="{ background: zone.color }"><span v-html="icon(zone.state === 'normal' ? 'check' : 'thermometer', 21)"></span></div><div><p class="eyebrow">{{ zoneStateLabel(zone.state) }} · {{ zone.update }}</p><h2>{{ zone.name }}</h2><p v-if="zone.temp != null || zone.humidity != null">温度 {{ zone.temp == null ? '—' : `${temp(zone.temp)} ${tempUnit()}` }}，湿度 {{ zone.humidity == null ? '—' : `${zone.humidity.toFixed(1)} %` }}。</p><p>{{ zoneStateReason(zone) }}</p><small>在线 {{ zone.onlineSensorCount || 0 }} / 已绑定 {{ zone.sensors.length }} · 影响 {{ zone.affectedBatchIds?.length || 0 }} 个库存批次</small></div><button class="secondary-btn" @click="navigateToZone(zone)">查看库存</button></article></section>
+          <section v-if="environmentNotifications.length" class="module-history compact-history"><div class="section-head"><div><p class="eyebrow">站内提醒</p><h2>环境与传感器事件</h2></div></div><article v-for="item in environmentNotifications" :key="item.id"><span v-html="icon('bell', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.resolvedAt ? '已解决' : '处理中' }} · {{ relativeTime(item.createdAt) }}</small></div><em>{{ item.body }}</em><button v-if="!item.readAt" title="标记已读" @click="markNotificationRead(item)"><span v-html="icon('check', 15)"></span></button></article></section>
         </template>
 
         <template v-else-if="page === 'inventory'">
@@ -667,7 +730,7 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-else-if="page === 'settings'">
           <section class="page-intro"><div><p class="eyebrow">账户、偏好与冰箱分区</p><h1>设置</h1><p>过敏与忌口会作为菜谱推荐的硬性排除条件。</p></div><button class="primary-btn" @click="saveProfile">保存更改</button></section><section class="settings-layout"><div class="settings-main"><article class="setting-card"><div class="setting-title"><span v-html="icon('spark', 22)"></span><div><h2>饮食偏好</h2><p>推荐会自动遵循这些选择</p></div></div><label>口味偏好</label><div class="choice-row"><button v-for="taste in ['清淡', '少油', '低盐', '微辣', '中辣', '少糖']" :key="taste" :class="{ selected: preferences.tastes.includes(taste) }" @click="toggleTag(preferences.tastes, taste)"><span v-html="icon('check', 14)"></span>{{ taste }}</button></div><label>菜系偏好</label><div class="choice-row"><button v-for="cuisine in ['家常菜', '粤菜', '川菜', '日料', '轻食']" :key="cuisine" :class="{ selected: preferences.cuisine.includes(cuisine) }" @click="toggleTag(preferences.cuisine, cuisine)"><span v-html="icon('check', 14)"></span>{{ cuisine }}</button></div><div class="field-pair"><label>饮食目标<select v-model="preferences.goal"><option>减脂</option><option>增肌</option><option>均衡饮食</option><option>控制热量</option></select></label><label>每日热量目标<div class="input-suffix"><input v-model.number="preferences.target" type="number" /><span>千卡</span></div></label></div></article>
-            <article class="setting-card"><div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与传感器</h2><p>当前值来自传感器，只能设置理想温湿度。</p></div><div class="zone-count-control" aria-label="分区数量"><span>分区数量</span><div><button v-for="count in [3, 4, 5, 6]" :key="count" type="button" :class="{ selected: zoneCount === count }" :aria-pressed="zoneCount === count" @click="setZoneCount(count)">{{ count }}</button></div></div></div><p class="zone-count-note">减少分区只会隐藏对应数据，重新增加后可恢复名称、传感器和库存。</p><div v-for="zone in zones" :key="zone.id" class="zone-editor"><div class="zone-editor-top zone-target-editor"><span class="zone-icon" :style="{ background: zone.color }"></span><input :value="zone.name" aria-label="分区名称" maxlength="12" @change="updateZoneName(zone, $event.target.value)" /><label>理想温度<input v-model.number="zone.targetTemperature" type="number" step="0.1" /><small>°C</small></label><label>理想湿度<input v-model.number="zone.targetHumidity" type="number" /><small>%</small></label></div><div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp.toFixed(1) }} °C</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity }} %</b></span><small>{{ zone.update }} 更新 · 实测值不可手动修改</small></div><div class="sensor-list"><div v-for="sensor in zone.sensors" :key="sensor.id" class="sensor-chip"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度传感器' : '湿度传感器' }} · {{ sensor.update }}</small></div><strong>{{ sensor.value }} {{ sensor.unit }}</strong><button title="移除传感器" @click="zone.sensors.splice(zone.sensors.indexOf(sensor), 1)">×</button></div><button class="add-sensor-btn" @click="openSensorEditor(zone)"><span v-html="icon('plus', 15)"></span>添加传感器</button></div></div></article></div><aside class="account-card"><span class="avatar large-avatar">{{ profile.name.slice(0, 1) }}</span><h2>账户信息</h2><label>姓名<input v-model="profile.name" /></label><label>用户名<input v-model.trim="profile.username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-z0-9_]{3,32}" /></label><label>邮箱<input v-model="profile.email" type="email" readonly /></label><hr /><h3>修改密码</h3><label>原密码<input v-model="profile.currentPassword" type="password" /></label><label>新密码<input v-model="profile.password" type="password" placeholder="至少 8 位" /></label><label>确认新密码<input v-model="profile.confirmPassword" type="password" /></label><div class="account-unit"><span>温度单位</span><span class="unit-switch"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></aside></section>
+            <article class="setting-card"><div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与传感器</h2><p>当前值和绑定状态来自环境与设备 API。</p></div><div class="zone-count-control" aria-label="分区数量"><span>分区数量</span><div><button v-for="count in [3, 4, 5, 6]" :key="count" type="button" :class="{ selected: zoneCount === count }" :aria-pressed="zoneCount === count" @click="setZoneCount(count)">{{ count }}</button></div></div></div><p class="zone-count-note">设备注册与槽位绑定请暂时通过 Swagger 正式 API 完成；此处展示真实待绑定与已绑定状态，并支持解绑。</p><div v-for="zone in zones" :key="zone.id" class="zone-editor"><div class="zone-editor-top zone-target-editor"><span class="zone-icon" :style="{ background: zone.color }"></span><input :value="zone.name" aria-label="分区名称" maxlength="12" @change="updateZoneName(zone, $event.target.value)" /><label>理想温度<input v-model.number="zone.targetTemperature" type="number" step="0.1" /><small>°C</small></label><label>理想湿度<input v-model.number="zone.targetHumidity" type="number" /><small>%</small></label></div><div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp == null ? '—' : `${zone.temp.toFixed(1)} °C` }}</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity == null ? '—' : `${zone.humidity.toFixed(1)} %` }}</b></span><small>{{ zone.update }} · 实测值不可手动修改</small></div><div class="sensor-list"><div v-for="sensor in zone.sensorSlots" :key="sensor.id" class="sensor-chip"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度传感器' : '湿度传感器' }} · {{ sensor.bindingStatus === 'BOUND' ? `${sensor.update} · ${sensor.quality}` : '待绑定' }}</small></div><strong>{{ sensor.bindingStatus === 'BOUND' ? `${sensor.value} ${sensor.unit}` : `槽位 ${sensor.slotIndex + 1}` }}</strong><button v-if="sensor.bindingStatus === 'BOUND'" title="解绑传感器" @click="removeBoundSensor(sensor)">×</button></div><p v-if="!zone.sensorSlots.length" class="sensor-form-note">该分区未配置传感器槽位。</p></div></div></article></div><aside class="account-card"><span class="avatar large-avatar">{{ profile.name.slice(0, 1) }}</span><h2>账户信息</h2><label>姓名<input v-model="profile.name" /></label><label>用户名<input v-model.trim="profile.username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-z0-9_]{3,32}" /></label><label>邮箱<input v-model="profile.email" type="email" readonly /></label><hr /><h3>修改密码</h3><label>原密码<input v-model="profile.currentPassword" type="password" /></label><label>新密码<input v-model="profile.password" type="password" placeholder="至少 8 位" /></label><label>确认新密码<input v-model="profile.confirmPassword" type="password" /></label><div class="account-unit"><span>温度单位</span><span class="unit-switch"><button :class="{ on: unit === 'C' }" @click="unit = 'C'">℃</button><button :class="{ on: unit === 'F' }" @click="unit = 'F'">℉</button></span></div></aside></section>
         </template>
       </div>
     </main>

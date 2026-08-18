@@ -52,3 +52,21 @@ test('shopping store uses the atomic store endpoint and idempotency header', asy
   assert.equal(calls[0].options.method, 'POST')
   assert.match(calls[0].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
 })
+
+test('environment reads are authenticated and device/notification writes are idempotent', async t => {
+  const calls = []
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ zones: [] }) }
+
+  await api.getEnvironment('fridge-id')
+  await api.getZoneSensors('zone-id')
+  await api.createDevice('zone-id', { name: '测试设备', type: 'VIRTUAL' })
+  await api.updateNotification('notification-id', { read: true })
+
+  assert.equal(calls[0].url, '/api/v1/fridges/fridge-id/environment')
+  assert.equal(calls[1].url, '/api/v1/zones/zone-id/sensors')
+  assert.equal(calls[2].url, '/api/v1/zones/zone-id/devices')
+  assert.match(calls[2].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
+  assert.match(calls[3].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
+})

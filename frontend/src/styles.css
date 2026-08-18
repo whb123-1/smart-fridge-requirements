@@ -368,6 +368,7 @@ button:disabled{cursor:not-allowed;opacity:.58;box-shadow:none}
   --text-card-title:15px;
   --text-section:20px;
 }
+.environment-list article.environment-normal{border-color:#bdd8c9;border-left-color:#5b9a78}.environment-list article.environment-normal .eyebrow,.environment-list article.environment-normal small{color:#4f8067}.environment-list article.environment-stale{border-color:#d8c9a2;border-left-color:#b18a38;background:#fffdf6}.environment-list article.environment-stale .eyebrow,.environment-list article.environment-stale small{color:#8a6b2b}.environment-list article.environment-no_sensor{border-color:#cbd5df;border-left-color:#8696a6;background:#f8fafc}.environment-list article.environment-no_sensor .eyebrow,.environment-list article.environment-no_sensor small{color:#718090}
 
 body,button,input,select,textarea{letter-spacing:0}
 .content:not(.home-content){font-size:var(--text-body);line-height:1.55}

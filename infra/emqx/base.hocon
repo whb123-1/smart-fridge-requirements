@@ -1,0 +1,41 @@
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    enable = true
+    method = post
+    url = "http://api:8080/internal/mqtt/authenticate"
+    headers = {
+      "content-type" = "application/json"
+      "x-internal-key" = "configured-by-environment"
+    }
+    body = {
+      username = "${username}"
+      clientid = "${clientid}"
+      password = "${password}"
+    }
+  }
+]
+
+authorization {
+  no_match = deny
+  deny_action = ignore
+  sources = [
+    {
+      type = http
+      enable = true
+      method = post
+      url = "http://api:8080/internal/mqtt/authorize"
+      headers = {
+        "content-type" = "application/json"
+        "x-internal-key" = "configured-by-environment"
+      }
+      body = {
+        username = "${username}"
+        clientid = "${clientid}"
+        action = "${action}"
+        topic = "${topic}"
+      }
+    }
+  ]
+}

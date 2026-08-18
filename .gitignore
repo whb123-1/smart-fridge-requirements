@@ -5,4 +5,5 @@ work/
 *.log
 .env
 backend/target/
+backend/.m2/
 backend/.mvn/wrapper/apache-maven-*/

@@ -26,6 +26,31 @@ services:
       timeout: 3s
       retries: 20
 
+  emqx:
+    image: emqx/emqx:5.8.8
+    hostname: emqx
+    environment:
+      EMQX_NODE__NAME: emqx@emqx
+      EMQX_NODE__COOKIE: ${EMQX_NODE_COOKIE:-replace-with-a-development-erlang-cookie}
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD_USERNAME:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-change-me-emqx}
+      EMQX_AUTHENTICATION__1__HEADERS: >-
+        {"content-type"="application/json","x-internal-key"="${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}"}
+      EMQX_AUTHORIZATION__SOURCES__1__HEADERS: >-
+        {"content-type"="application/json","x-internal-key"="${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}"}
+    volumes:
+      - ./infra/emqx/base.hocon:/opt/emqx/etc/base.hocon:ro
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    ports:
+      - "1883:1883"
+      - "18083:18083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:18083/status | grep --quiet 'is running'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: ./backend
@@ -41,12 +66,23 @@ services:
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-replace-with-a-32-byte-minimum-development-secret}
       REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      MQTT_ENABLED: ${MQTT_ENABLED:-true}
+      MQTT_BROKER_URL: tcp://emqx:1883
+      MQTT_PUBLIC_BROKER_URL: ${MQTT_PUBLIC_BROKER_URL:-tcp://localhost:1883}
+      MQTT_SERVICE_USERNAME: ${MQTT_SERVICE_USERNAME:-service}
+      MQTT_SERVICE_PASSWORD: ${MQTT_SERVICE_PASSWORD:-change-me-service}
+      MQTT_SIMULATOR_USERNAME: ${MQTT_SIMULATOR_USERNAME:-simulator}
+      MQTT_SIMULATOR_PASSWORD: ${MQTT_SIMULATOR_PASSWORD:-change-me-simulator}
+      MQTT_INTERNAL_TOKEN: ${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}
+      DEBUG_TEST_OPERATOR_USERNAMES: ${DEBUG_TEST_OPERATOR_USERNAMES:-demo}
     ports:
       - "8080:8080"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      emqx:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/actuator/health/readiness || exit 1"]
@@ -69,10 +105,40 @@ services:
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-replace-with-a-32-byte-minimum-development-secret}
       REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+      MQTT_ENABLED: ${MQTT_ENABLED:-true}
+      MQTT_BROKER_URL: tcp://emqx:1883
+      MQTT_SERVICE_USERNAME: ${MQTT_SERVICE_USERNAME:-service}
+      MQTT_SERVICE_PASSWORD: ${MQTT_SERVICE_PASSWORD:-change-me-service}
+      MQTT_INTERNAL_TOKEN: ${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}
     depends_on:
       api:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+
+  simulator:
+    profiles: ["simulator"]
+    build:
+      context: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: simulator,dev
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
+      MYSQL_USER: ${MYSQL_USER:-xianzhi}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MQTT_ENABLED: "true"
+      MQTT_BROKER_URL: tcp://emqx:1883
+      MQTT_SIMULATOR_USERNAME: ${MQTT_SIMULATOR_USERNAME:-simulator}
+      MQTT_SIMULATOR_PASSWORD: ${MQTT_SIMULATOR_PASSWORD:-change-me-simulator}
+      MQTT_SIMULATOR_EMIT_INTERVAL: ${MQTT_SIMULATOR_EMIT_INTERVAL:-PT1M}
+    depends_on:
+      api:
+        condition: service_healthy
+      emqx:
         condition: service_healthy
 
 volumes:
   mysql_data:
   redis_data:
+  emqx_data:
+  emqx_log:

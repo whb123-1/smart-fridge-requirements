@@ -13,6 +13,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "shelf_life_assessment")
@@ -27,6 +28,7 @@ public class ShelfLifeAssessment {
     @Column(nullable = false, length = 24) private String confidence;
     @Enumerated(EnumType.STRING) @Column(name = "safety_status", nullable = false, length = 32) private AssessmentStatus safetyStatus;
     @Column(nullable = false, length = 512) private String explanation;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name = "environment_impacts", columnDefinition = "json") private String environmentImpacts;
     @Column(name = "calculated_at", nullable = false) private Instant calculatedAt;
     protected ShelfLifeAssessment() { }
     public ShelfLifeAssessment(UUID id, UUID batchId, Integer profileVersion, Instant estimatedExpiryAt,
@@ -36,6 +38,16 @@ public class ShelfLifeAssessment {
         this.estimatedExpiryAt = estimatedExpiryAt; this.baseExpiryAt = baseExpiryAt; this.cumulativeRiskMinutes = BigDecimal.ZERO;
         this.estimationSource = source; this.confidence = confidence; this.safetyStatus = status;
         this.explanation = explanation; this.calculatedAt = Instant.now();
+    }
+    public ShelfLifeAssessment(UUID id, UUID batchId, Integer profileVersion, Instant estimatedExpiryAt,
+                               Instant baseExpiryAt, BigDecimal cumulativeRiskMinutes, AssessmentSource source,
+                               String confidence, AssessmentStatus status, String explanation,
+                               String environmentImpacts, Instant calculatedAt) {
+        this.id = id; this.batchId = batchId; this.profileVersion = profileVersion;
+        this.estimatedExpiryAt = estimatedExpiryAt; this.baseExpiryAt = baseExpiryAt;
+        this.cumulativeRiskMinutes = cumulativeRiskMinutes; this.estimationSource = source;
+        this.confidence = confidence; this.safetyStatus = status; this.explanation = explanation;
+        this.environmentImpacts = environmentImpacts; this.calculatedAt = calculatedAt;
     }
     public UUID getId() { return id; }
     public UUID getBatchId() { return batchId; }
@@ -47,5 +59,6 @@ public class ShelfLifeAssessment {
     public String getConfidence() { return confidence; }
     public AssessmentStatus getSafetyStatus() { return safetyStatus; }
     public String getExplanation() { return explanation; }
+    public String getEnvironmentImpacts() { return environmentImpacts; }
     public Instant getCalculatedAt() { return calculatedAt; }
 }

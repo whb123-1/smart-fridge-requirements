@@ -230,8 +230,9 @@ function labelTexture(zone, kind, compact = false, slotId = null) {
   context.fillStyle = accent
   const temperatureSize = compact ? 124 : 136
   context.font = `800 ${temperatureSize}px "Nunito Sans", "Noto Sans SC", sans-serif`
-  context.fillText(`${zone.temp.toFixed(1)}°`, 272, 222)
-  const tempWidth = context.measureText(`${zone.temp.toFixed(1)}°`).width
+  const temperatureText = zone.temp == null ? '—°' : `${Number(zone.temp).toFixed(1)}°`
+  context.fillText(temperatureText, 272, 222)
+  const tempWidth = context.measureText(temperatureText).width
   context.font = '800 50px "Nunito Sans", sans-serif'
   context.fillText('C', 284 + tempWidth, 244)
 
@@ -244,7 +245,7 @@ function labelTexture(zone, kind, compact = false, slotId = null) {
   context.fillText('湿度', 314, 318)
   const humidityLabelWidth = context.measureText('湿度').width
   context.font = `900 ${compact ? 74 : 82}px "Nunito Sans", "Noto Sans SC", sans-serif`
-  context.fillText(`${zone.humidity}%`, 340 + humidityLabelWidth, 318)
+  context.fillText(zone.humidity == null ? '—%' : `${Number(zone.humidity).toFixed(0)}%`, 340 + humidityLabelWidth, 318)
 
   context.globalAlpha = 0.12
   context.fillStyle = accent
@@ -864,7 +865,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="fridge-status-slot" aria-live="polite">
         <div v-if="activeZone" class="fridge-model-status" :class="{ warning: activeZone.state === 'warning' }">
-          <span></span><b>{{ activeZone.name }}</b><small>{{ zoneItemCount(activeZone) }} 件 · {{ activeZone.temp.toFixed(1) }}°C</small>
+          <span></span><b>{{ activeZone.name }}</b><small>{{ zoneItemCount(activeZone) }} 件 · {{ activeZone.temp == null ? '暂无读数' : `${Number(activeZone.temp).toFixed(1)}°C` }}</small>
           <button type="button" class="fridge-zone-detail" @click="openZoneDetails">查看分区</button>
           <button type="button" class="fridge-door-close" aria-label="关闭冰箱门" @click="closeDoors">×</button>
         </div>

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: 鲜知智慧冰箱 API
   version: 1.0.0
-  description: 阶段 0-1 的账户、会话与首次冰箱初始化契约。
+  description: 阶段 0-3 的账户、冰箱、库存采购、MQTT 环境监测与站内通知契约。
 servers:
   - url: /api/v1
 security:
@@ -255,6 +255,104 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/StoreRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /zones/{id}/devices:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listZoneDevices
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+    post:
+      operationId: createDevice
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDeviceRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '400': { $ref: '#/components/responses/ValidationError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /zones/{id}/sensors:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listZoneSensorSlots
+      description: Returns both PENDING_BIND logical slots and BOUND sensors for the current user's zone.
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /devices/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateDevice
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDeviceRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+    delete:
+      operationId: deleteDevice
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /devices/{id}/credentials/rotate:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: rotateDeviceCredential
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /devices/{id}/sensors:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listDeviceSensors
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+    post:
+      operationId: bindDeviceSensor
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BindSensorRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /devices/{deviceId}/sensors/{sensorId}:
+    parameters:
+      - { in: path, name: deviceId, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: sensorId, required: true, schema: { type: string, format: uuid } }
+    delete:
+      operationId: unbindDeviceSensor
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /zones/{id}/readings:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listZoneReadings
+      parameters:
+        - { in: query, name: metric, schema: { type: string, enum: [TEMPERATURE, HUMIDITY] } }
+        - { in: query, name: from, schema: { type: string, format: date-time } }
+        - { in: query, name: to, schema: { type: string, format: date-time } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 1000 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /fridges/{id}/environment:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: getFridgeEnvironment
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /notifications:
+    get:
+      operationId: listNotifications
+      parameters: [{ in: query, name: unreadOnly, schema: { type: boolean } }]
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /notifications/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateNotification
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateNotificationRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /debug/telemetry/scenarios:
+    get:
+      operationId: listDebugTelemetryScenarios
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+    post:
+      operationId: createDebugTelemetryScenario
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDebugScenarioRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /debug/telemetry/scenarios/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateDebugTelemetryScenario
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDebugScenarioRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+    delete:
+      operationId: deleteDebugTelemetryScenario
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
 components:
   parameters:
     IdempotencyKey:
@@ -273,6 +371,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
   responses:
+    GenericError:
+      description: 请求失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     GenericSuccess:
       description: 成功响应
       content:
@@ -570,3 +673,44 @@ components:
         unit: { type: string, maxLength: 24 }
         storedAt: { type: string, format: date-time }
         shelfLifeDays: { type: integer, minimum: 0 }
+    CreateDeviceRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 96 }
+        type: { type: string, enum: [PHYSICAL, VIRTUAL] }
+    UpdateDeviceRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 96 }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+    BindSensorRequest:
+      type: object
+      required: [slotId, name, externalKey]
+      properties:
+        slotId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 96 }
+        externalKey: { type: string, minLength: 1, maxLength: 96 }
+    UpdateNotificationRequest:
+      type: object
+      properties:
+        read: { type: boolean }
+        dismissed: { type: boolean }
+    CreateDebugScenarioRequest:
+      type: object
+      required: [deviceId, sensorId, mode, durationMinutes]
+      properties:
+        deviceId: { type: string, format: uuid }
+        sensorId: { type: string, format: uuid }
+        mode: { type: string, enum: [NORMAL, TARGET, STALE] }
+        targetValue: { type: number }
+        durationMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        jitter: { type: number, minimum: 0 }
+    UpdateDebugScenarioRequest:
+      type: object
+      properties:
+        mode: { type: string, enum: [NORMAL, TARGET, STALE] }
+        targetValue: { type: number }
+        durationMinutes: { type: integer, minimum: 1, maximum: 1440 }
+        jitter: { type: number, minimum: 0 }
+        active: { type: boolean }

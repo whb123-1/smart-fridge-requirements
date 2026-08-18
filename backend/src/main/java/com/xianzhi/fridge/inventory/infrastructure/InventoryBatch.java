@@ -56,6 +56,7 @@ public class InventoryBatch {
     public String getUnit() { return unit; }
     public BatchStatus getStatus() { return status; }
     public Instant getRemindAt() { return remindAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
     public void updateSchedule(UUID zoneId, Instant openedAt, Instant packageExpiresAt, Integer shelfLifeDays, Instant remindAt) {
         this.zoneId = zoneId; this.openedAt = openedAt; this.packageExpiresAt = packageExpiresAt; this.shelfLifeDays = shelfLifeDays; this.remindAt = remindAt;
     }

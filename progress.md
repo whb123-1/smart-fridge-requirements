@@ -1,17 +1,17 @@
 # 项目进展交接
 
-更新时间：2026-08-17（Asia/Shanghai）  
+更新时间：2026-08-18（Asia/Shanghai）
 当前分支：`main`  
-基线提交：`fcca65aa35eafd02c2d2b47a7868162ba217649e`（`后端第一进程`）
+基线提交：`b02ec72dc12f20a208fc693f628dfbdc8592d82b`
 
 ## 当前环境状态
 
-- 项目环境已关闭：`docker compose down` 已执行，`5173` 和 `8080` 均无监听。
-- Docker Desktop已退出。
-- 未使用 `docker compose down -v`，MySQL 和 Redis 命名数据卷保留。
-- Vite 开发服务器已停止。
-- 本地持久卷中包含验收时创建的 `qa_` / `ren_` 前缀测试账号及 `QA Fridge` 数据，后续可按需清理。
-- 写入本文件前工作区为干净状态；`progress.md` 是本次交接新增文件，尚未提交。
+- Docker Compose 环境正在运行：MySQL、Redis、EMQX、API、Worker 和可选 Simulator 均已启动；MySQL、Redis、EMQX、API 健康检查通过。
+- API 对外端口为 `8080`，MQTT 为 `1883`，EMQX Dashboard 为 `18083`；前端 Vite 开发服务器当前未由 Compose 管理。
+- 未执行 `docker compose down -v`，MySQL、Redis 和 EMQX 命名数据卷均保留。
+- 当前持久卷包含阶段 3 验收用户 `demo`、冰箱、虚拟设备、绑定传感器和 Debug 场景；不应在未确认时清理。
+- 当前数据库 Flyway schema 版本为 `005`，V001-V005 均已执行且不得修改。
+- 工作区包含阶段 3 的未提交实现与测试，详见本文末尾“阶段 3”记录。
 
 ## 已完成的事项
 
@@ -94,8 +94,8 @@
 
 ## 关键决策
 
-- 当前只交付阶段 0-1：账户、会话、资料、首次冰箱初始化和只读冰箱摘要持久化。
-- 库存、采购、菜谱、饮食、助手、遥测和 AI 暂不持久化，不能将现有演示数据视为后端数据。
+- 当前已交付阶段 0-3：身份与冰箱初始化、库存/采购核心闭环，以及 MQTT 环境监测与保质期联动。
+- 菜谱、饮食、语音、邮件和 AI 仍未持久化，相关前端演示数据不能视为后端数据。
 - 用户数据采用单用户私有模型，所有查询必须以认证用户 ID 隔离。
 - 用户名全局唯一且不因软删除释放，不提供用户名复用。
 - 邮箱策略、JWT 内容、密码策略和刷新会话策略不因用户名功能改变。
@@ -104,15 +104,15 @@
 - OpenAPI 为契约来源；实现新正式端点时必须同步契约和测试。
 - 本地开发通过 Vite 同源代理使用非 Secure Cookie；生产环境必须启用 HTTPS 和 Secure Cookie。
 - Compose 关闭默认保留数据卷；只有明确需要清空数据时才执行 `docker compose down -v`。
-- MQTT、MinIO、Qdrant 和 AI 基础设施延后到对应业务阶段，不提前加入当前 Compose。
+- MQTT/EMQX 已在阶段 3 接入；MinIO、Qdrant、邮件和 AI 基础设施继续延后到对应业务阶段。
 
 ## 未完成的待办
 
 ### 下一阶段业务
 
-- 将库存、保质期、采购、菜谱、饮食记录和助手逐域迁移到真实后端与数据库。
-- 为上述领域替换当前 mock 数据和旧 API 别名，并补充用户隔离、幂等、事务与集成测试。
-- 按业务阶段接入 MQTT 遥测、MinIO、Qdrant 和 AI 能力。
+- 将语音录入、邮件通知、菜谱、饮食记录和 AI 助手逐域迁移到真实后端与数据库。
+- 为菜谱、饮食和 AI 领域替换当前演示数据，并补充用户隔离、幂等、事务与集成测试。
+- 按后续业务阶段接入 MinIO、Qdrant、邮件投递和 AI 能力。
 - 设计家庭共享、多用户冰箱授权和 OAuth；这些不属于当前单用户阶段。
 
 ### 工程与生产化
@@ -130,7 +130,7 @@
 
 ```powershell
 Set-Location C:\Users\LENOVO\Desktop\smart-fridge-requirements
-docker compose up --build -d
+docker compose --profile simulator up --build -d
 docker compose ps
 
 Set-Location frontend
@@ -140,7 +140,7 @@ npm run dev
 健康检查：`http://localhost:8080/actuator/health`  
 前端默认地址：`http://127.0.0.1:5173`
 
-建议下一步先选择一个业务域（推荐库存），明确数据库模型、API 契约和前端迁移边界后再实现。
+建议下一步按计划选择语音/通知增强或菜谱域，先明确数据库模型、API 契约和前端迁移边界后再实现。
 
 ## 阶段 2：库存核心闭环（2026-08-18）
 
@@ -169,3 +169,42 @@ npm run dev
 - `npm.cmd --prefix frontend test`：22 项通过，包含鉴权和幂等请求头测试。
 - `npm.cmd --prefix frontend run build`：通过；仅保留 Vite 主包超过 500 kB 的既有提示。
 - `git diff --check`：通过，仅有 Windows 换行符提示。
+
+## 阶段 3：MQTT 环境监测与保质期联动（2026-08-18）
+
+### 已完成
+
+- 新增 `V005__telemetry_environment_and_notifications.sql`，保持 `V001-V004` 不变；包含设备、传感器档案、遥测消息、按月 RANGE 分区的原始读数、小时聚合、分区环境状态、环境事件、批次异常暴露、Debug 场景、站内通知和 ShedLock。
+- `sensor` 槽位已扩展设备/档案绑定、最后有效值、质量、时间和连续可疑次数；储存档案加入版本化偏离阈值、风险倍率与高风险分钟数；保质期评估加入环境影响快照。
+- Outbox 已扩展尝试次数、可用/锁定/完成时间和失败原因；Worker 使用 `FOR UPDATE SKIP LOCKED` 批量领取，指数退避，五次失败后进入 `FAILED`，并可重新领取超时的 `PROCESSING` 事件。
+- Compose 已加入 EMQX 5.8.8 和可选 `simulator` Profile；API/Worker/Simulator 等待 EMQX 与 API 健康状态，服务账号、模拟器账号、内部回调密钥和 Debug 操作员名单均通过环境变量配置。
+- 实现 `PHYSICAL`/`VIRTUAL` 设备注册、一次性随机 MQTT 凭据、Argon2 哈希存储、凭据轮换、停用、PENDING_BIND 槽位绑定和解除绑定。
+- EMQX HTTP 鉴权/ACL 回调受内部密钥保护；设备只能发布自己的 `smart-fridge/v1/{deviceId}/telemetry`，服务账号只能订阅通配遥测主题，模拟器只允许向有效虚拟设备主题发布。
+- API 使用 QoS 1、非 retained 消息、持久会话和手动确认；数据库事务成功或业务拒绝审计落库后才确认，基础设施异常不确认并由 Broker 重投。
+- 遥测支持温度 C/F、湿度 PERCENT、摄氏归一化、七天 messageId 去重、整消息 Schema/归属/物理边界校验、未来十分钟限制和相对最新有效值 48 小时历史窗口。
+- 48 小时内乱序读数会保存但不覆盖当前值；BAD 只审计；变化速率超限以 SUSPECT 保存但不参与当前环境/保质期，连续三次创建传感器异常 Outbox 事件，恢复后关闭异常。
+- Worker 每五分钟聚合 15 分钟窗口内各绑定传感器的最新有效值并求平均；实现 NORMAL、WARNING、STALE、NO_SENSOR，异常/恢复均需连续 15 分钟，只有待绑定槽位时不产生陈旧告警。
+- 批次风险通过唯一的批次/事件暴露台账不可逆累计，公式为暴露分钟 × 食材风险系数 × 轻微/中等/严重倍率；实测评估来源为 `MEASURED_ENVIRONMENT`，预计到期时间按累计风险前移，高风险只返回 `CHECK_BEFORE_CONSUMING`。
+- 环境事件和传感器异常按事件 ID 创建去重站内通知；事件关闭时只设置解决时间，不自动标记已读。通知列表和读/隐藏更新均按当前用户隔离。
+- Worker 已替换原空壳进程，包含 Outbox 消费、环境聚合与风险重算、小时聚合、90 天原始数据/24 个月小时数据清理及未来分区维护任务，所有周期任务使用 ShedLock。
+- 正式 API 已实现设备、分区槽位、读数、冰箱环境、通知和 dev/test Debug 场景端点；所有用户写接口要求 `Idempotency-Key`，Debug Controller 在生产 Profile 不注册且仅允许名单用户操作自己的已绑定虚拟设备。
+- `backend/openapi.yaml` 已同步阶段 3 路径、DTO、幂等头、状态码和错误响应；内部 EMQX 回调未暴露在公共 OpenAPI。
+- 前端已接入真实环境、趋势、设备/槽位和通知 API；首页与环境页使用真实在线/陈旧数量、温湿度、同步时间和活动事件；设置页展示真实待绑定/已绑定状态，刷新后重新加载环境、通知和环境调整后的保质期评估。
+
+### 阶段 3 验证
+
+- 后端全量 Maven 测试：30 项通过，0 失败、0 错误；包含既有 8 项阶段 1/2 Testcontainers 集成回归、空库 V001-V005 迁移和 V002→V005 升级。
+- 新增阶段 3 单元覆盖：C/F 转换、未来/物理边界、跨设备传感器伪造、48 小时历史边界、去重、乱序、BAD、连续 SUSPECT/恢复、15 分钟开启/关闭、STALE/NO_SENSOR、风险倍率与不可逆累计、通知去重/解决和 Outbox 五次失败策略。
+- 新增 EMQX/MySQL/Redis Testcontainers 集成：通过正式 API 完成注册、初始化、虚拟设备注册与槽位绑定，QoS 1 消息经 EMQX→API→MySQL 入库；重复发布相同 messageId 后读数和消息均保持一条。
+- Compose 实链路验收通过：Simulator 经 EMQX HTTP 鉴权/ACL 发布，API 入库温度 `4°C / GOOD / EXTERNAL_DEBUG` 并更新设备最后在线时间。
+- Worker `reading_rank` 窗口查询修复后已在整五分钟调度执行；环境 API 返回 CHILL `NORMAL / 4°C`、在线传感器 1、陈旧传感器 0，Worker 日志无后续 SQL 错误。
+- 前端 `npm test`：24 项通过；`npm run build`：通过，仅保留 Vite 主包超过 500 kB 的提示。
+- `git diff --check`：通过。
+
+### 继续延期
+
+- 语音录入、草稿确认和转写。
+- 邮件投递与通知偏好；本阶段只实现站内环境提醒。
+- 菜谱、饮食记录和 AI 生成/持久化。
+- MinIO、Qdrant 及真实硬件厂商协议适配。
+- 风险阈值和倍率目前是开发参考种子，正式上线前仍需食品安全领域人员校准。

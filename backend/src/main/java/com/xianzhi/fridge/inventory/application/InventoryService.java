@@ -65,17 +65,17 @@ public class InventoryService {
     private final OutboxEventRepository outbox;
     private final ObjectMapper mapper;
     private final AuditService audit;
-    private final Clock clock = Clock.systemUTC();
+    private final Clock clock;
 
     public InventoryService(FridgeRepository fridges, FridgeZoneRepository zones, FoodCatalogRepository catalogs,
                             FoodWeightEstimateRepository weights, FoodStorageProfileRepository profiles,
                             InventoryItemRepository items, InventoryBatchRepository batches,
                             InventoryTransactionRepository transactions, ShelfLifeAssessmentRepository assessments,
                             IdempotencyRecordRepository idempotency, OutboxEventRepository outbox,
-                            ObjectMapper mapper, AuditService audit) {
+                            ObjectMapper mapper, AuditService audit, Clock clock) {
         this.fridges = fridges; this.zones = zones; this.catalogs = catalogs; this.weights = weights; this.profiles = profiles;
         this.items = items; this.batches = batches; this.transactions = transactions; this.assessments = assessments;
-        this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit;
+        this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit; this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -343,7 +343,7 @@ public class InventoryService {
     private InventoryContracts.AssessmentView toAssessment(ShelfLifeAssessment assessment) {
         return new InventoryContracts.AssessmentView(assessment.getId(), assessment.getEstimatedExpiryAt(), assessment.getBaseExpiryAt(),
                 assessment.getCumulativeRiskMinutes(), assessment.getEstimationSource(), assessment.getConfidence(), assessment.getSafetyStatus(),
-                assessment.getExplanation(), assessment.getCalculatedAt());
+                assessment.getExplanation(), assessment.getEnvironmentImpacts(), assessment.getCalculatedAt());
     }
 
     private InventoryItem ownedItem(UUID userId, UUID itemId) {
