@@ -67,9 +67,21 @@ app:
     refresh-ttl: ${JWT_REFRESH_TTL:P30D}
     refresh-cookie-name: xianzhi_refresh
     refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:false}
+    admin-usernames: ${ADMIN_USERNAMES:}
   rate-limit:
     login-per-ip-per-minute: 5
     login-per-account-per-15-minutes: 10
+  speech:
+    fake-enabled: ${SPEECH_FAKE_ENABLED:false}
+    fake-transcript: ${SPEECH_FAKE_TRANSCRIPT:鸡蛋 2 个}
+    storage-path: ${SPEECH_STORAGE_PATH:${java.io.tmpdir}/xianzhi-speech}
+    max-upload-bytes: ${SPEECH_MAX_UPLOAD_BYTES:10485760}
+  ai:
+    external-calls-enabled: ${AI_EXTERNAL_CALLS_ENABLED:false}
+    model-name: ${AI_MODEL_NAME:rules-v1}
+    vector-enabled: ${AI_VECTOR_ENABLED:false}
+    qdrant-url: ${QDRANT_URL:http://localhost:6333}
+    qdrant-collection: ${QDRANT_COLLECTION:xianzhi_recipes}
 
 logging:
   structured:

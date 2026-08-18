@@ -51,6 +51,37 @@ services:
       timeout: 5s
       retries: 20
 
+  minio:
+    profiles: ["storage"]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-xianzhi}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    profiles: ["vector"]
+    image: qdrant/qdrant:v1.15.4
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: ./backend
@@ -75,6 +106,17 @@ services:
       MQTT_SIMULATOR_PASSWORD: ${MQTT_SIMULATOR_PASSWORD:-change-me-simulator}
       MQTT_INTERNAL_TOKEN: ${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}
       DEBUG_TEST_OPERATOR_USERNAMES: ${DEBUG_TEST_OPERATOR_USERNAMES:-demo}
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-demo}
+      SPEECH_FAKE_ENABLED: ${SPEECH_FAKE_ENABLED:-true}
+      SPEECH_FAKE_TRANSCRIPT: ${SPEECH_FAKE_TRANSCRIPT:-鸡蛋 2 个}
+      SPEECH_STORAGE_PATH: /data/speech
+      AI_EXTERNAL_CALLS_ENABLED: ${AI_EXTERNAL_CALLS_ENABLED:-false}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-rules-v1}
+      AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-xianzhi_recipes}
+    volumes:
+      - speech_data:/data/speech
     ports:
       - "8080:8080"
     depends_on:
@@ -110,6 +152,16 @@ services:
       MQTT_SERVICE_USERNAME: ${MQTT_SERVICE_USERNAME:-service}
       MQTT_SERVICE_PASSWORD: ${MQTT_SERVICE_PASSWORD:-change-me-service}
       MQTT_INTERNAL_TOKEN: ${MQTT_INTERNAL_TOKEN:-replace-with-an-internal-development-token}
+      SPEECH_FAKE_ENABLED: ${SPEECH_FAKE_ENABLED:-true}
+      SPEECH_FAKE_TRANSCRIPT: ${SPEECH_FAKE_TRANSCRIPT:-鸡蛋 2 个}
+      SPEECH_STORAGE_PATH: /data/speech
+      AI_EXTERNAL_CALLS_ENABLED: ${AI_EXTERNAL_CALLS_ENABLED:-false}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-rules-v1}
+      AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-xianzhi_recipes}
+    volumes:
+      - speech_data:/data/speech
     depends_on:
       api:
         condition: service_healthy
@@ -142,3 +194,6 @@ volumes:
   redis_data:
   emqx_data:
   emqx_log:
+  speech_data:
+  minio_data:
+  qdrant_data:

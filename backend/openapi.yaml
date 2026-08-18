@@ -333,6 +333,147 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateNotificationRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /me/preferences:
+    get: { operationId: getUserPreferences, responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+    put:
+      operationId: updateUserPreferences
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateUserPreferencesRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /me/notification-preferences:
+    get: { operationId: getNotificationPreferences, responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+    put:
+      operationId: updateNotificationPreferences
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateNotificationPreferencesRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /inventory/voice-drafts:
+    post:
+      operationId: createVoiceDraft
+      parameters:
+        - { in: query, name: fridgeId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio: { type: string, format: binary }
+      responses: { '202': { $ref: '#/components/responses/GenericSuccess' }, '400': { $ref: '#/components/responses/ValidationError' }, '503': { $ref: '#/components/responses/GenericError' } }
+  /inventory/voice-drafts/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get: { operationId: getVoiceDraft, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } } }
+  /inventory/voice-drafts/{id}/confirm:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: confirmVoiceDraft
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmVoiceDraftRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /recipes:
+    get:
+      operationId: listRecipes
+      parameters:
+        - { in: query, name: maxCookMinutes, schema: { type: integer } }
+        - { in: query, name: taste, schema: { type: string } }
+        - { in: query, name: cuisine, schema: { type: string } }
+        - { in: query, name: maxCalories, schema: { type: number } }
+        - { in: query, name: goal, schema: { type: string } }
+        - { in: query, name: availability, schema: { type: string, enum: [DIRECT, MISSING_FEW, UNMATCHED, UNKNOWN] } }
+        - { in: query, name: query, schema: { type: string } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /recipes/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get: { operationId: getRecipe, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } } }
+  /recipes/generate:
+    post:
+      operationId: generateRecipes
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GenerateRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /recipe-synthesis/match:
+    post:
+      operationId: matchRecipeIngredients
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MatchRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /recipes/{id}/scale:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: scaleRecipe
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ScaleRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /recipes/{id}/bookmark:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    put: { operationId: bookmarkRecipe, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+    delete: { operationId: removeRecipeBookmark, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+  /recipes/{id}/cook:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: cookRecipe
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CookRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /admin/recipe-sources:
+    get: { operationId: listRecipeSources, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } } }
+    post:
+      operationId: createRecipeSource
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecipeSourceRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/recipe-sources/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateRecipeSource
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecipeSourceRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/recipe-import-jobs:
+    post:
+      operationId: createRecipeImportJob
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecipeImportRequest' } } } }
+      responses: { '202': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/recipe-import-jobs/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get: { operationId: getRecipeImportJob, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } } }
+  /meals/estimate-nutrition:
+    post:
+      operationId: estimateMealNutrition
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EstimateNutritionRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /meals:
+    get: { operationId: listMeals, responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+    post:
+      operationId: createMeal
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateMealRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /analytics/consumption:
+    get: { operationId: getConsumptionAnalytics, parameters: [{ in: query, name: period, schema: { type: string, enum: [week, month] } }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+  /analytics/diet:
+    get: { operationId: getDietAnalytics, parameters: [{ in: query, name: date, schema: { type: string, format: date } }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+  /assistant/briefing:
+    get: { operationId: getAssistantBriefing, responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
+  /assistant/conversations:
+    post:
+      operationId: createAssistantConversation
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateAssistantConversationRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /assistant/conversations/{conversationId}/messages:
+    parameters: [{ in: path, name: conversationId, required: true, schema: { type: string, format: uuid } }]
+    post:
+      operationId: sendAssistantMessage
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AssistantMessageRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /assistant/action-proposals/{id}/confirm:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post: { operationId: confirmAssistantAction, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' } } }
+  /assistant/action-proposals/{id}/dismiss:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post: { operationId: dismissAssistantAction, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
   /debug/telemetry/scenarios:
     get:
       operationId: listDebugTelemetryScenarios
@@ -714,3 +855,128 @@ components:
         durationMinutes: { type: integer, minimum: 1, maximum: 1440 }
         jitter: { type: number, minimum: 0 }
         active: { type: boolean }
+    UpdateUserPreferencesRequest:
+      type: object
+      properties:
+        tastes: { type: array, items: { type: string } }
+        cuisines: { type: array, items: { type: string } }
+        allergies: { type: array, items: { type: string } }
+        dislikes: { type: array, items: { type: string } }
+        dietaryGoal: { type: string }
+        calorieTarget: { type: integer, minimum: 500, maximum: 10000 }
+        temperatureUnit: { type: string, enum: [C, F] }
+    UpdateNotificationPreferencesRequest:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items:
+            type: object
+            required: [type, inAppEnabled, emailEnabled]
+            properties:
+              type: { type: string, enum: [EXPIRY_SOON, EXPIRED, LOW_STOCK, ENVIRONMENT_ALERT] }
+              inAppEnabled: { type: boolean }
+              emailEnabled: { type: boolean }
+              quietStart: { type: string, format: time }
+              quietEnd: { type: string, format: time }
+              timezone: { type: string }
+    ConfirmVoiceDraftRequest:
+      type: object
+      required: [inventory]
+      properties:
+        inventory: { $ref: '#/components/schemas/CreateItemRequest' }
+    RecipeIngredientInput:
+      type: object
+      required: [name]
+      properties:
+        batchId: { type: string, format: uuid }
+        name: { type: string }
+        quantity: { type: number }
+        unit: { type: string }
+    GenerateRecipeRequest:
+      type: object
+      properties:
+        fridgeId: { type: string, format: uuid }
+        prompt: { type: string, maxLength: 500 }
+        inventory: { type: array, items: { $ref: '#/components/schemas/RecipeIngredientInput' } }
+        count: { type: integer, minimum: 1, maximum: 3 }
+    MatchRecipeRequest:
+      type: object
+      required: [ingredients]
+      properties:
+        ingredients: { type: array, maxItems: 4, items: { $ref: '#/components/schemas/RecipeIngredientInput' } }
+    ScaleRecipeRequest:
+      type: object
+      required: [primaryComponentId, quantity, unit, servings]
+      properties:
+        primaryComponentId: { type: string, format: uuid }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { type: string }
+        servings: { type: number, exclusiveMinimum: 0 }
+    CookRecipeRequest:
+      type: object
+      required: [servings, consumptions]
+      properties:
+        servings: { type: number, exclusiveMinimum: 0 }
+        consumptions:
+          type: array
+          items:
+            type: object
+            required: [batchId, quantity, unit]
+            properties:
+              batchId: { type: string, format: uuid }
+              quantity: { type: number, exclusiveMinimum: 0 }
+              unit: { type: string }
+        recordMeal: { type: boolean }
+        mealAt: { type: string, format: date-time }
+    EstimateNutritionRequest:
+      type: object
+      required: [dishName]
+      properties:
+        dishName: { type: string }
+        amount: { type: number }
+        unit: { type: string }
+    CreateMealRequest:
+      type: object
+      required: [mealAt, name, servings]
+      properties:
+        recipeId: { type: string, format: uuid }
+        mealAt: { type: string, format: date-time }
+        mealType: { type: string, maxLength: 24 }
+        name: { type: string, maxLength: 160 }
+        servings: { type: number, minimum: 0.1 }
+        calories: { type: number }
+        protein: { type: number }
+        fat: { type: number }
+        carbs: { type: number }
+        estimated: { type: boolean }
+        nutritionSource: { type: string }
+    RecipeSourceRequest:
+      type: object
+      required: [name, sourceType, licenseCode, attributionText, allowedUse, sourceVersion]
+      properties:
+        name: { type: string, maxLength: 160 }
+        sourceType: { type: string }
+        licenseCode: { type: string }
+        attributionText: { type: string, maxLength: 500 }
+        allowedUse: { type: string }
+        sourceVersion: { type: string }
+        enabled: { type: boolean }
+    RecipeImportRequest:
+      type: object
+      required: [sourceId, payload]
+      properties:
+        sourceId: { type: string, format: uuid }
+        payload: { type: object, additionalProperties: true }
+    CreateAssistantConversationRequest:
+      type: object
+      properties:
+        title: { type: string, maxLength: 160 }
+    AssistantMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, maxLength: 2000 }
+        page: { type: string, maxLength: 64 }
+        selection: { type: object, additionalProperties: true }

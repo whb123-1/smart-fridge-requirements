@@ -38,6 +38,8 @@ public class AppUser {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
     private UserStatus status;
+    @Column(nullable = false, length = 16)
+    private String role = "USER";
     @Column(name = "onboarding_completed_at")
     private Instant onboardingCompletedAt;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -75,6 +77,7 @@ public class AppUser {
     public String getTimezone() { return timezone; }
     public TemperatureUnit getTemperatureUnit() { return temperatureUnit; }
     public UserStatus getStatus() { return status; }
+    public String getRole() { return role; }
     public Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }
     public Instant getDeletedAt() { return deletedAt; }
     public boolean onboardingRequired() { return onboardingCompletedAt == null; }

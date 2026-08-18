@@ -8,6 +8,8 @@ import static org.mockito.Mockito.when;
 
 import com.xianzhi.fridge.fridge.domain.SensorMetric;
 import com.xianzhi.fridge.notification.infrastructure.Notification;
+import com.xianzhi.fridge.notification.infrastructure.NotificationDeliveryRepository;
+import com.xianzhi.fridge.notification.infrastructure.NotificationPreferenceRepository;
 import com.xianzhi.fridge.notification.infrastructure.NotificationRepository;
 import com.xianzhi.fridge.shared.application.IdempotencyService;
 import com.xianzhi.fridge.telemetry.domain.IncidentReason;
@@ -43,7 +45,8 @@ class NotificationServiceTest {
         });
 
         NotificationService service = new NotificationService(repository, mock(IdempotencyService.class),
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC), mock(NotificationPreferenceRepository.class),
+                mock(NotificationDeliveryRepository.class));
         Notification first = service.ensureIncident(incident, "冷藏区温度异常", "温度已连续偏离安全范围");
         Notification replay = service.ensureIncident(incident, "不会重复创建", "不会覆盖首次内容");
 

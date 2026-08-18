@@ -260,6 +260,23 @@ public class InventoryService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isUsableForRecipe(UUID userId, UUID batchId, BigDecimal requestedQuantity, String requestedUnit) {
+        InventoryBatch batch = batches.findForRead(batchId)
+                .orElseThrow(() -> notFound("BATCH_NOT_FOUND", "Batch not found"));
+        items.findByIdAndUserId(batch.getItemId(), userId)
+                .orElseThrow(() -> notFound("INVENTORY_ITEM_NOT_FOUND", "Inventory item not found"));
+        if (requestedUnit != null && !requestedUnit.equals(batch.getUnit())) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "UNIT_NOT_CONVERTIBLE", "Units cannot be converted");
+        }
+        if (batch.getStatus() != BatchStatus.ACTIVE || batch.getRemainingQuantity().signum() <= 0) return false;
+        if (requestedQuantity != null && requestedQuantity.signum() > 0
+                && requestedQuantity.compareTo(batch.getRemainingQuantity()) > 0) return false;
+        return assessments.findFirstByBatchIdOrderByCalculatedAtDesc(batchId)
+                .map(value -> value.getSafetyStatus() != AssessmentStatus.EXPIRED)
+                .orElse(true);
+    }
+
+    @Transactional(readOnly = true)
     public List<InventoryContracts.CatalogSuggestion> suggestions(String query, int limit) {
         String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         if (normalized.isEmpty()) return List.of();

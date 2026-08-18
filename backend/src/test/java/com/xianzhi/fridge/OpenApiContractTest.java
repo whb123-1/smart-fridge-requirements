@@ -27,7 +27,17 @@ class OpenApiContractTest {
                 "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store",
                 "/zones/{id}/devices", "/zones/{id}/sensors", "/devices/{id}", "/devices/{id}/credentials/rotate", "/devices/{id}/sensors",
                 "/devices/{deviceId}/sensors/{sensorId}", "/zones/{id}/readings", "/fridges/{id}/environment",
-                "/notifications", "/notifications/{id}", "/debug/telemetry/scenarios", "/debug/telemetry/scenarios/{id}"));
+                "/notifications", "/notifications/{id}", "/me/preferences", "/me/notification-preferences",
+                "/inventory/voice-drafts", "/inventory/voice-drafts/{id}", "/inventory/voice-drafts/{id}/confirm",
+                "/recipes", "/recipes/{id}", "/recipes/generate", "/recipe-synthesis/match",
+                "/recipes/{id}/scale", "/recipes/{id}/bookmark", "/recipes/{id}/cook",
+                "/admin/recipe-sources", "/admin/recipe-sources/{id}",
+                "/admin/recipe-import-jobs", "/admin/recipe-import-jobs/{id}",
+                "/meals/estimate-nutrition", "/meals", "/analytics/consumption", "/analytics/diet",
+                "/assistant/briefing", "/assistant/conversations",
+                "/assistant/conversations/{conversationId}/messages",
+                "/assistant/action-proposals/{id}/confirm", "/assistant/action-proposals/{id}/dismiss",
+                "/debug/telemetry/scenarios", "/debug/telemetry/scenarios/{id}"));
 
         Map<String, Object> components = (Map<String, Object>) root.get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

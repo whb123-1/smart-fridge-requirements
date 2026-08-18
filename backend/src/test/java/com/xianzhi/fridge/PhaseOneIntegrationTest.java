@@ -5,11 +5,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xianzhi.fridge.recipe.application.RecipeImportProcessor;
+import com.xianzhi.fridge.shared.application.OutboxProcessor;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +31,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.mock.web.MockMultipartFile;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -56,11 +61,16 @@ class PhaseOneIntegrationTest {
                 () -> "redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(6379) + "/0");
         registry.add("app.security.jwt-signing-key",
                 () -> "integration-test-signing-key-with-at-least-32-bytes");
+        registry.add("app.security.admin-usernames", () -> "phase4_admin");
+        registry.add("app.speech.fake-enabled", () -> "true");
+        registry.add("app.speech.fake-transcript", () -> "番茄 2 个");
     }
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired RecipeImportProcessor recipeImports;
+    @Autowired OutboxProcessor outbox;
 
     @Test
     void onboardingIsIdempotentAndDataIsIsolatedByUser() throws Exception {
@@ -352,8 +362,125 @@ class PhaseOneIntegrationTest {
                 "SELECT COUNT(*) FROM inventory_item WHERE display_name = 'Rollback me'", Integer.class)).isZero();
     }
 
+    @Test
+    void voiceDraftRequiresConfirmationAndReplaysInventoryCreation() throws Exception {
+        Session account = register("voice-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(account);
+        MockMultipartFile audio = new MockMultipartFile("audio", "sample.wav", "audio/wav", new byte[]{1, 2, 3, 4});
+        MvcResult uploaded = mvc.perform(multipart("/api/v1/inventory/voice-drafts")
+                        .file(audio).param("fridgeId", fridge.id()).header("Authorization", bearer(account)))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.status").value("UPLOADED")).andReturn();
+        String draftId = data(uploaded).path("id").asText();
+        outbox.processBatch();
+        mvc.perform(get("/api/v1/inventory/voice-drafts/{id}", draftId)
+                        .header("Authorization", bearer(account)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("READY"))
+                .andExpect(jsonPath("$.data.draft.name").value("番茄"));
+
+        String key = UUID.randomUUID().toString();
+        String body = objectMapper.writeValueAsString(Map.of("inventory", Map.of(
+                "fridgeId", fridge.id(), "name", "番茄", "category", "VEGETABLE", "defaultUnit", "piece",
+                "batches", List.of(Map.of("zoneId", fridge.firstZoneId(), "quantity", 2, "unit", "piece")))));
+        MvcResult confirmed = mvc.perform(post("/api/v1/inventory/voice-drafts/{id}/confirm", draftId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn();
+        String itemId = data(confirmed).path("id").asText();
+        mvc.perform(post("/api/v1/inventory/voice-drafts/{id}/confirm", draftId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(itemId));
+        assertThat(jdbc.queryForObject("select count(*) from inventory_item where id=UUID_TO_BIN(?)", Integer.class, itemId)).isEqualTo(1);
+    }
+
+    @Test
+    void phaseFourRecipesMealsAssistantAndAdminImportArePersistentAndIsolated() throws Exception {
+        Session owner = register("phase4-" + UUID.randomUUID() + "@example.com");
+        mvc.perform(put("/api/v1/me/preferences").header("Authorization", bearer(owner))
+                        .header("Idempotency-Key", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tastes\":[],\"cuisines\":[],\"allergies\":[\"鸡蛋\"],\"dislikes\":[],\"calorieTarget\":1800}"))
+                .andExpect(status().isOk());
+        MvcResult filtered = mvc.perform(get("/api/v1/recipes").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andReturn();
+        for (JsonNode recipe : data(filtered)) assertThat(recipe.path("name").asText()).isNotEqualTo("番茄炒蛋");
+
+        String mealKey = UUID.randomUUID().toString();
+        String meal = "{\"mealAt\":\"2026-08-18T08:00:00Z\",\"mealType\":\"BREAKFAST\",\"name\":\"燕麦粥\",\"servings\":1,\"calories\":320,\"protein\":12,\"estimated\":true,\"nutritionSource\":\"RULE_ESTIMATE\"}";
+        MvcResult createdMeal = mvc.perform(post("/api/v1/meals").header("Authorization", bearer(owner))
+                        .header("Idempotency-Key", mealKey).contentType(MediaType.APPLICATION_JSON).content(meal))
+                .andExpect(status().isOk()).andReturn();
+        String mealId = data(createdMeal).path("id").asText();
+        mvc.perform(post("/api/v1/meals").header("Authorization", bearer(owner))
+                        .header("Idempotency-Key", mealKey).contentType(MediaType.APPLICATION_JSON).content(meal))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(mealId));
+        Session other = register("phase4-other-" + UUID.randomUUID() + "@example.com");
+        mvc.perform(get("/api/v1/meals").header("Authorization", bearer(other)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+
+        MvcResult conversation = mvc.perform(post("/api/v1/assistant/conversations")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"测试会话\"}"))
+                .andExpect(status().isOk()).andReturn();
+        String conversationId = data(conversation).path("id").asText();
+        String messageKey = UUID.randomUUID().toString();
+        String message = "{\"content\":\"今天吃什么\",\"page\":\"home\",\"selection\":{\"email\":\"must-not-enter-context@example.com\"}}";
+        MvcResult answer = mvc.perform(post("/api/v1/assistant/conversations/{id}/messages", conversationId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", messageKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(message))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.fallback").value(true)).andReturn();
+        String messageId = data(answer).path("message").path("id").asText();
+        mvc.perform(post("/api/v1/assistant/conversations/{id}/messages", conversationId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", messageKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(message))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.message.id").value(messageId));
+        assertThat(jdbc.queryForObject("select count(*) from ai_context_snapshot where context_json like '%must-not-enter-context%'", Integer.class)).isZero();
+        String proposalId = data(answer).path("actionProposals").path(0).path("id").asText();
+        mvc.perform(put("/api/v1/me/preferences").header("Authorization", bearer(owner))
+                        .header("Idempotency-Key", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tastes\":[],\"cuisines\":[],\"allergies\":[\"花生\"],\"dislikes\":[],\"calorieTarget\":1800}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/assistant/action-proposals/{id}/confirm", proposalId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONTEXT_STALE"));
+
+        Session admin = register("phase4-admin@example.com", "phase4_admin");
+        MvcResult sources = mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(admin)))
+                .andExpect(status().isOk()).andReturn();
+        String sourceId = data(sources).path(0).path("id").asText();
+        String importBody = objectMapper.writeValueAsString(Map.of("sourceId", sourceId, "payload", Map.of("recipes", List.of(Map.of(
+                "sourceRecipeId", "integration-tofu", "title", "香煎豆腐", "summary", "集成测试菜谱", "cookMinutes", 12,
+                "servings", 2, "ingredients", List.of(Map.of("name", "豆腐", "role", "PRIMARY", "quantity", 300, "unit", "g")),
+                "steps", List.of("豆腐切片", "煎至两面金黄"), "nutrition", Map.of("calories", 360, "protein", 24))))));
+        String importKey = UUID.randomUUID().toString();
+        MvcResult queued = mvc.perform(post("/api/v1/admin/recipe-import-jobs")
+                        .header("Authorization", bearer(admin)).header("Idempotency-Key", importKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(importBody))
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.data.status").value("QUEUED")).andReturn();
+        String jobId = data(queued).path("id").asText();
+        recipeImports.processBatch();
+        mvc.perform(get("/api/v1/admin/recipe-import-jobs/{id}", jobId).header("Authorization", bearer(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.data.importedCount").value(1));
+        mvc.perform(get("/api/v1/recipes").param("query", "香煎豆腐").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].name").value("香煎豆腐"));
+        MvcResult ingredientSearch = mvc.perform(get("/api/v1/recipes").param("query", "豆腐")
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(data(ingredientSearch).findValuesAsText("name")).contains("香煎豆腐");
+        MvcResult ingredientGenerate = mvc.perform(post("/api/v1/recipes/generate")
+                        .header("Authorization", bearer(owner)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"豆腐\",\"inventory\":[],\"count\":3}"))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(data(ingredientGenerate).path("recipes").findValuesAsText("name")).contains("香煎豆腐");
+        mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(other)))
+                .andExpect(status().isForbidden());
+    }
+
     private Session register(String email) throws Exception {
-        String username = newUsername();
+        return register(email, newUsername());
+    }
+
+    private Session register(String email, String username) throws Exception {
         MvcResult result = mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"" + username + "\",\"email\":\"" + email

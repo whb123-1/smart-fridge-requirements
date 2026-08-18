@@ -33,6 +33,11 @@ const expiryFilter = ref('全部')
 const recipeFilter = ref('全部推荐')
 const shoppingGroup = ref('全部')
 const assistantInput = ref('')
+const assistantConversationId = ref(null)
+const assistantProposals = reactive([])
+const voiceFileInput = ref(null)
+const voiceDraft = ref(null)
+const voiceUploadInProgress = ref(false)
 const selectedFood = ref(null)
 const selectedShopItem = ref(null)
 const sensorZone = ref(null)
@@ -84,7 +89,7 @@ const zoneRegistry = reactive([
   { id: 5, kind: 'chill', enabled: false, name: '扩展冷藏区', temp: 4, humidity: 65, targetTemperature: 4, targetHumidity: 65, state: 'normal', update: '未接入', items: 0, color: '#79a9c4', sensors: [] },
   { id: 6, kind: 'fresh', enabled: false, name: '扩展保鲜区', temp: 2, humidity: 80, targetTemperature: 2, targetHumidity: 80, state: 'normal', update: '未接入', items: 0, color: '#78b998', sensors: [] },
 ])
-zoneRegistry.forEach(zone => Object.assign(zone, { temp: null, humidity: null, state: 'no_sensor', update: '正在同步', sensors: [], sensorSlots: [], incidents: [], affectedBatchIds: [] }))
+zoneRegistry.forEach(zone => Object.assign(zone, { temp: null, humidity: null, state: 'no_sensor', update: '正在同步', items: 0, sensors: [], sensorSlots: [], incidents: [], affectedBatchIds: [] }))
 
 const zones = computed(() => zoneRegistry.filter(zone => zone.enabled))
 
@@ -100,35 +105,33 @@ function normalizeZoneId(value, fallback = null) {
   return zoneById(id) ? id : fallback
 }
 
-const recipes = reactive([
-  { id: 1, name: '鸡胸肉豆腐煲', desc: '清淡不寡淡，正好优先处理临期鸡胸肉', time: 25, kcal: 386, protein: 42, match: 100, level: '可直接制作', color: '#dfe9df', art: '🍲', tags: ['高蛋白', '低油'], favorite: true, collected: false, missing: [], base: 300, ingredients: [{ name: '鸡胸肉', amount: 300, unit: '克' }, { name: '北豆腐', amount: 1, unit: '盒' }, { name: '上海青', amount: 200, unit: '克' }], seasonings: [{ name: '低钠生抽', amount: 10, unit: '毫升' }], steps: ['鸡胸肉切块，用少量生抽和姜片腌制 5 分钟。', '豆腐切块，与鸡胸肉一起小火煎至表面微黄。', '加入清水炖煮 12 分钟，放入上海青煮熟即可。'] },
-  { id: 2, name: '蒜蓉上海青', desc: '8 分钟完成，优先处理新鲜度较低的蔬菜', time: 8, kcal: 96, protein: 4, match: 100, level: '可直接制作', color: '#e8edd6', art: '🥬', tags: ['低热量', '优先处理临期'], favorite: false, collected: false, missing: [], base: 300, ingredients: [{ name: '上海青', amount: 300, unit: '克' }], seasonings: [{ name: '蒜', amount: 8, unit: '克' }], steps: ['上海青洗净，蒜切末。', '热锅少油，下蒜末炒香。', '放入上海青大火快炒，加盐后出锅。'] },
-  { id: 3, name: '香煎三文鱼温沙拉', desc: '缺少小番茄，可用苹果替代增加清甜', time: 22, kcal: 438, protein: 32, match: 88, level: '可替代制作', color: '#f1e1d6', art: '🥗', tags: ['优质脂肪', '可替代'], favorite: false, collected: true, missing: ['小番茄'], base: 250, ingredients: [{ name: '三文鱼', amount: 250, unit: '克' }, { name: '小番茄', amount: 120, unit: '克' }], seasonings: [{ name: '黑胡椒', amount: 2, unit: '克' }], steps: ['三文鱼擦干水分，撒黑胡椒。', '平底锅小火煎至两面熟透。', '配上蔬菜和柠檬汁拌匀。'] },
-])
+const recipes = reactive([])
 
 const shopping = reactive([])
 
-const restockCandidates = reactive([
-  { id: 'restock-oats', name: '燕麦片', group: '主食', current: '0 袋', threshold: '1 袋', amount: '1 袋', note: '常用库存低于阈值' },
-  { id: 'restock-pepper', name: '黑胡椒', group: '调味品', current: '余量未记录', threshold: '常用 1 瓶', amount: '1 瓶', note: '调味品即将用完' },
-  { id: 'restock-tomato', name: '小番茄', group: '蔬果', current: '库存缺少', threshold: '菜谱需要', amount: '250 克', note: '所选菜谱缺少食材' },
-])
+const restockCandidates = computed(() => {
+  const candidates = new Map()
+  foods.filter(food => food.lowStock).forEach(food => candidates.set(food.name, {
+    id: `low-${food.id}`, name: food.name, group: ['蔬菜', '水果'].includes(food.category) ? '蔬果' : food.category,
+    current: `${food.amount} ${food.unit}`, threshold: '后端低库存阈值', amount: `1 ${food.unit}`, note: '库存低于已配置阈值',
+  }))
+  recipes.flatMap(recipe => recipe.missing || []).forEach(name => {
+    if (!candidates.has(name)) candidates.set(name, { id: `recipe-${name}`, name, group: '菜谱缺料', current: '库存缺少', threshold: '菜谱需要', amount: '1 份', note: '已加载菜谱缺少食材' })
+  })
+  return [...candidates.values()]
+})
 
-const preferences = reactive({ tastes: ['清淡', '少油', '微辣'], cuisine: ['家常菜', '粤菜'], allergies: ['花生'], dislikes: ['香菜'], goal: '减脂', target: 1650 })
-const profile = reactive({ name: '林知夏', email: 'xia@example.com', currentPassword: '', password: '', confirmPassword: '' })
+const preferences = reactive({ tastes: [], cuisine: [], allergies: [], dislikes: [], goal: '', target: 1650 })
+const profile = reactive({ name: '', email: '', currentPassword: '', password: '', confirmPassword: '' })
 profile.username = ''
 profile.timezone = 'Asia/Shanghai'
-const mealRecords = reactive([
-  { id: 1, time: '08:10', name: '早餐', food: '无糖酸奶燕麦杯 · 1 份', kcal: 268, icon: '🥣' },
-  { id: 2, time: '12:35', name: '午餐', food: '番茄牛肉盖饭 · 0.8 份', kcal: 642, icon: '🍛' },
-  { id: 3, time: '15:20', name: '加餐', food: '苹果 · 1 个', kcal: 92, icon: '🍎' },
-])
+const mealRecords = reactive([])
 const histories = reactive({
-  '饮食记录': [{ id: 1, title: '番茄牛肉盖饭', meta: '今天 12:35 · 午餐', note: '642 千卡' }, { id: 2, title: '无糖酸奶燕麦杯', meta: '今天 08:10 · 早餐', note: '268 千卡' }],
-  '做菜记录': [{ id: 1, title: '蒜蓉上海青', meta: '昨天 18:42 · 已完成', note: '96 千卡' }],
+  '饮食记录': [],
+  '做菜记录': [],
   '采购记录': [],
 })
-const assistantMessages = reactive([{ id: 1, role: 'assistant', text: '你好，我是鲜知助手。可以帮你推荐菜谱、检查保质期、评估饮食或生成购物清单。' }])
+const assistantMessages = reactive([])
 
 const alerts = computed(() => foods.filter(food => food.days <= 3))
 const warningZones = computed(() => zones.value.filter(zone => ['warning', 'stale'].includes(zone.state)))
@@ -196,6 +199,43 @@ function mapShoppingItem(item) {
   return { id: item.id, name: item.name, note: item.note || '', amount, quantity: item.quantity, unit: item.unit, status: String(item.status || 'PENDING').toLowerCase(), group, sourceType: item.sourceType }
 }
 
+const recipeColors = ['#dfe9df', '#e8edd6', '#f1e1d6', '#dce7ef', '#eee3d5']
+function mapRecipe(item, index = 0) {
+  const components = item.ingredients || []
+  const ingredients = components.filter(component => component.role !== 'SEASONING').map(component => ({
+    id: component.id, name: component.name, amount: Number(component.quantity), quantity: Number(component.quantity),
+    unit: displayUnit(component.unit), apiUnit: component.unit, role: component.role,
+  }))
+  const seasonings = components.filter(component => component.role === 'SEASONING').map(component => ({
+    id: component.id, name: component.name, amount: Number(component.quantity), quantity: Number(component.quantity),
+    unit: displayUnit(component.unit), apiUnit: component.unit, role: component.role,
+  }))
+  const available = new Set(foods.filter(food => Number(food.amount) > 0).map(food => food.name))
+  const missing = item.missing?.length ? item.missing : ingredients.filter(component => !available.has(component.name)).map(component => component.name)
+  const availability = item.availability === 'UNKNOWN' ? (missing.length ? 'MISSING_FEW' : 'DIRECT') : item.availability
+  const match = ingredients.length ? Math.max(0, Math.round((ingredients.length - missing.length) / ingredients.length * 100)) : 100
+  const primary = ingredients.find(component => component.apiUnit === 'g') || ingredients[0]
+  return {
+    id: item.id, name: item.name, desc: item.description || '', time: Number(item.cookMinutes || 0),
+    kcal: Math.round(Number(item.perServing?.calories ?? item.total?.calories ?? 0)),
+    protein: Math.round(Number(item.perServing?.protein ?? item.total?.protein ?? 0)),
+    match, level: availability === 'DIRECT' ? '可直接制作' : missing.length ? `缺 ${missing.length} 项食材` : '库存待确认',
+    color: recipeColors[index % recipeColors.length], art: '🍲', tags: [item.cuisine, item.taste, item.goal].filter(Boolean),
+    favorite: Boolean(item.bookmarked), collected: Boolean(item.bookmarked), missing, base: Number(primary?.quantity || item.servings || 1),
+    servings: Number(item.servings || 1), ingredients, seasonings, steps: item.steps || [], warnings: item.validationWarnings || [],
+    source: item.source, sourceVersion: item.sourceVersion, attribution: item.attribution,
+  }
+}
+
+function mapMeal(item) {
+  const at = new Date(item.mealAt)
+  return {
+    id: item.id, time: at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+    name: item.mealType || '用餐', food: `${item.name} × ${item.servings} 份`,
+    kcal: Math.round(Number(item.nutrition?.calories || 0)), icon: '🍽️', mealAt: item.mealAt,
+  }
+}
+
 function icon(name, size = 20) {
   const paths = {
     box: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z"/><path d="M4 6.5v13M8 8h8"/>', spark: '<path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="m18.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', check: '<path d="m5 12 4 4L19 6"/>', heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 0 0 1.1-8.9z"/>', close: '<path d="M6 6l12 12M18 6 6 18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6v.2h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pan: '<path d="M3 13h13a5 5 0 0 1-10 0H3z"/><path d="M16 13h5M8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4"/>', trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>', edit: '<path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/>', download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', thermometer: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z"/><path d="M12 9v7"/>', drop: '<path d="M12 3s5 5.3 5 10a5 5 0 0 1-10 0c0-4.7 5-10 5-10Z"/>', alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/>', arrow: '<path d="m14.5 5-7 7 7 7"/><path d="M8 12h12"/>', list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>', logout: '<path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/>',
@@ -207,7 +247,7 @@ function notify(message) { toast.value = message; setTimeout(() => { if (toast.v
 function go(target) { page.value = target; search.value = ''; router.push({ name: 'app', params: { page: target } }) }
 function temp(value) { return unit.value === 'C' ? Number(value).toFixed(1) : (Number(value) * 9 / 5 + 32).toFixed(1) }
 function tempUnit() { return unit.value === 'C' ? '°C' : '°F' }
-function dateAfter(days) { const date = new Date('2026-08-14T00:00:00'); date.setDate(date.getDate() + Number(days)); return date.toISOString().slice(0, 10) }
+function dateAfter(days) { const date = new Date(); date.setDate(date.getDate() + Number(days)); return date.toISOString().slice(0, 10) }
 function statusFor(days) { return Number(days) <= 1 ? 'urgent' : Number(days) <= 3 ? 'soon' : 'fresh' }
 function foodIcon(category, name = '') { return category === '肉蛋' ? (name.includes('蛋') ? '🥚' : '🥩') : categoryIcons[category] || '🥕' }
 function normalizeFoodAmount(value) { if (value === '' || value === null || value === undefined) return ''; const amount = Number(value); return Number.isFinite(amount) ? Math.max(0, amount) : '' }
@@ -231,6 +271,41 @@ async function refreshShopping() {
   histories['采购记录'].splice(0, histories['采购记录'].length, ...shopping
     .filter(item => item.status === 'stored')
     .map(item => ({ id: item.id, title: item.name, meta: '采购入库 · 已完成', note: item.amount || '数量未记录' })))
+}
+
+async function refreshPreferences() {
+  const remote = await api.getPreferences()
+  preferences.tastes.splice(0, preferences.tastes.length, ...(remote.tastes || []))
+  preferences.cuisine.splice(0, preferences.cuisine.length, ...(remote.cuisines || []))
+  preferences.allergies.splice(0, preferences.allergies.length, ...(remote.allergies || []))
+  preferences.dislikes.splice(0, preferences.dislikes.length, ...(remote.dislikes || []))
+  preferences.goal = remote.dietaryGoal || ''
+  preferences.target = Number(remote.calorieTarget || 1650)
+  if (remote.temperatureUnit) unit.value = remote.temperatureUnit
+}
+
+async function refreshRecipes() {
+  const remote = await api.listRecipes()
+  recipes.splice(0, recipes.length, ...(remote || []).map(mapRecipe))
+}
+
+async function refreshMeals() {
+  const remote = await api.listMeals()
+  const mapped = (remote || []).map(mapMeal)
+  mealRecords.splice(0, mealRecords.length, ...mapped)
+  histories['饮食记录'].splice(0, histories['饮食记录'].length, ...mapped.map(item => ({
+    id: item.id, title: item.food, meta: `${item.time} · ${item.name}`, note: `${item.kcal} 千卡`,
+  })))
+}
+
+async function refreshAssistantBriefing() {
+  const briefing = await api.getAssistantBriefing()
+  if (assistantMessages.length) return
+  const insight = briefing.insights?.[0]
+  assistantMessages.push({
+    id: `briefing-${Date.now()}`, role: 'assistant',
+    text: insight ? `${insight.title}：${insight.body}` : `已同步当前库存与提醒。你有 ${briefing.unreadNotificationCount || 0} 条未读提醒，可以问我菜谱、保质期或采购建议。`,
+  })
 }
 
 function relativeTime(value) {
@@ -306,19 +381,57 @@ async function ensureShoppingList() {
   return created.id
 }
 
+function openVoiceDraftUpload() { voiceFileInput.value?.click() }
+async function uploadVoiceDraft(event) {
+  const audio = event.target.files?.[0]
+  event.target.value = ''
+  if (!audio || !session.fridge?.id) return
+  voiceUploadInProgress.value = true
+  isListening.value = true
+  try {
+    voiceDraft.value = await api.uploadVoiceDraft(session.fridge.id, audio)
+    for (let attempt = 0; attempt < 30 && ['UPLOADED', 'TRANSCRIBING'].includes(voiceDraft.value.status); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      voiceDraft.value = await api.getVoiceDraft(voiceDraft.value.id)
+    }
+    if (voiceDraft.value.status !== 'READY') throw new Error(voiceDraft.value.failureReason || '语音草稿处理失败')
+    const draft = voiceDraft.value.draft || {}
+    Object.assign(newFood, {
+      name: draft.name || '', category: displayCategory(draft.category), amount: draft.quantity || '',
+      unit: displayUnit(draft.unit), zoneId: zones.value[0]?.id || null,
+    })
+    showAdd.value = true
+    notify(`已识别：${voiceDraft.value.transcript || newFood.name}，请确认后入库`)
+  } catch (exception) {
+    voiceDraft.value = null
+    notify(exception.message || '语音草稿创建失败')
+  } finally { isListening.value = false; voiceUploadInProgress.value = false }
+}
+
+function inventoryCreatePayload() {
+  const zoneId = normalizeZoneId(newFood.zoneId, zones.value[0]?.id || null)
+  return {
+    fridgeId: session.fridge?.id,
+    name: newFood.name.trim(),
+    category: apiCategory(newFood.category),
+    defaultUnit: apiUnit(newFood.unit),
+    batches: [{
+      zoneId, storedAt: newFood.date ? new Date(`${newFood.date}T00:00:00`).toISOString() : null,
+      shelfLifeDays: newFood.shelf === '' ? null : Number(newFood.shelf), quantity: Number(newFood.amount || 0),
+      unit: apiUnit(newFood.unit), remindAt: newFood.reminder ? new Date(`${newFood.reminder}T00:00:00`).toISOString() : null,
+    }],
+  }
+}
+
 async function addFood() {
   if (!newFood.name) return notify('请填写食材名称')
   try {
-    const zoneId = normalizeZoneId(newFood.zoneId, zones.value[0]?.id || null)
-    await api.createInventoryItem({
-      fridgeId: session.fridge?.id,
-      name: newFood.name.trim(),
-      category: apiCategory(newFood.category),
-      defaultUnit: apiUnit(newFood.unit),
-      batches: [{ zoneId, storedAt: newFood.date ? new Date(`${newFood.date}T00:00:00`).toISOString() : null, shelfLifeDays: newFood.shelf === '' ? null : Number(newFood.shelf), quantity: Number(newFood.amount || 0), unit: apiUnit(newFood.unit), remindAt: newFood.reminder ? new Date(`${newFood.reminder}T00:00:00`).toISOString() : null }],
-    })
+    const payload = inventoryCreatePayload()
+    if (voiceDraft.value?.status === 'READY') await api.confirmVoiceDraft(voiceDraft.value.id, payload)
+    else await api.createInventoryItem(payload)
     await refreshInventory()
     Object.assign(newFood, { name: '', amount: '' })
+    voiceDraft.value = null
     showAdd.value = false
     notify('食材已放入冰箱')
     return
@@ -373,8 +486,15 @@ async function generateRecipes(prompt = '', inventory = foods, selectedCount = 0
   if (isGeneratingRecipe.value) return false
   isGeneratingRecipe.value = true
   try {
-    const result = await api.generateRecipeBatch({ inventory: inventory.map(food => ({ name: food.name, amount: food.amount, unit: food.unit, category: food.category })), preferences: { ...preferences }, prompt, count: 3 })
-    generatedRecipes.value = result.recipes || []
+    const result = await api.generateRecipeBatch({
+      fridgeId: session.fridge?.id,
+      inventory: inventory.filter(food => food.batchId).map(food => ({
+        batchId: food.batchId, name: food.name, quantity: food.amount, unit: food.apiUnit || apiUnit(food.unit),
+      })),
+      prompt,
+      count: 3,
+    })
+    generatedRecipes.value = (result.recipes || []).map(mapRecipe)
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = selectedCount
     recipeFilter.value = '全部推荐'
@@ -399,31 +519,63 @@ async function generateSelectedInventoryRecipes() {
   if (succeeded) closeInventoryRecipeSelector()
 }
 function toggleGeneratedRecipe(recipe) { const index = selectedGeneratedIds.value.indexOf(recipe.id); index >= 0 ? selectedGeneratedIds.value.splice(index, 1) : selectedGeneratedIds.value.push(recipe.id) }
-function saveGeneratedRecipes() {
+async function saveGeneratedRecipes() {
   const selected = generatedRecipes.value.filter(recipe => selectedGeneratedIds.value.includes(recipe.id))
   if (!selected.length) return notify('请至少选择一张菜谱')
-  selected.forEach(recipe => { if (!recipes.some(item => item.name === recipe.name)) recipes.unshift({ ...recipe, collected: true }) })
-  generatedRecipes.value = []
-  selectedGeneratedIds.value = []
-  generatedRecipeSelectionCount.value = 0
-  notify(`已保存 ${selected.length} 张菜谱`)
+  try {
+    await Promise.all(selected.map(recipe => api.setRecipeBookmark(recipe.id, true)))
+    await refreshRecipes()
+    generatedRecipes.value = []
+    selectedGeneratedIds.value = []
+    generatedRecipeSelectionCount.value = 0
+    notify(`已收藏 ${selected.length} 张菜谱`)
+  } catch (exception) { notify(exception.message || '菜谱收藏失败') }
 }
+
 function discardGeneratedRecipes() {
   generatedRecipes.value = []
   selectedGeneratedIds.value = []
   generatedRecipeSelectionCount.value = 0
   notify('已放弃本次候选菜谱')
 }
-function deleteRecipe(recipe) { const index = recipes.indexOf(recipe); if (index >= 0) recipes.splice(index, 1); if (cookingRecipe.value?.id === recipe.id) cookingRecipe.value = null; notify(`已删除「${recipe.name}」`) }
 function openCooking(recipe) { cookingRecipe.value = recipe; cookingWeight.value = recipe.base; activeCookingStep.value = 0; go('cooking') }
-function completeCooking() {
+async function completeCooking() {
   if (!cookingRecipe.value) return
-  scaledIngredients.value.forEach(ingredient => { const food = foods.find(item => item.name === ingredient.name); if (food && ['克', '毫升'].includes(food.unit)) food.amount = Math.max(0, food.amount - ingredient.display) })
-  histories['做菜记录'].unshift({ id: Date.now(), title: cookingRecipe.value.name, meta: '今天 · 已完成', note: `${scaledKcal.value} 千卡` })
-  mealRecords.push({ id: Date.now(), time: '18:40', name: '晚餐', food: `${cookingRecipe.value.name} · 1 份`, kcal: scaledKcal.value, icon: cookingRecipe.value.art })
-  histories['饮食记录'].unshift({ id: Date.now() + 1, title: cookingRecipe.value.name, meta: '今天 18:40 · 晚餐', note: `${scaledKcal.value} 千卡` })
-  notify('已完成制作，已记录饮食并扣减可计量库存')
+  if (cookingRecipe.value.missing.length) return notify(`仍缺少：${cookingRecipe.value.missing.join('、')}`)
+  const scale = Number(cookingWeight.value || 0) / Number(cookingRecipe.value.base || 1)
+  const consumptions = cookingRecipe.value.ingredients.map(ingredient => {
+    const food = foods.find(item => item.name === ingredient.name && item.batchId)
+    if (!food) return null
+    return { batchId: food.batchId, quantity: Number((ingredient.quantity * scale).toFixed(3)), unit: ingredient.apiUnit }
+  }).filter(Boolean)
+  if (!consumptions.length) return notify('没有可扣减的库存批次')
+  try {
+    await api.cookRecipe(cookingRecipe.value.id, {
+      servings: Number((cookingRecipe.value.servings * scale).toFixed(2)), consumptions,
+      recordMeal: true, mealAt: new Date().toISOString(),
+    })
+    await Promise.all([refreshInventory(), refreshMeals(), refreshRecipes()])
+    histories['做菜记录'].unshift({ id: Date.now(), title: cookingRecipe.value.name, meta: '刚刚 · 已完成', note: `${scaledKcal.value} 千卡` })
+    notify('烹饪完成，库存流水和饮食记录已同步')
+  } catch (exception) { notify(exception.message || '烹饪确认失败，请检查库存数量') }
 }
+
+async function toggleRecipeBookmark(recipe) {
+  const next = !recipe.collected
+  try {
+    await api.setRecipeBookmark(recipe.id, next)
+    recipe.collected = next
+    recipe.favorite = next
+    notify(next ? `已收藏「${recipe.name}」` : `已取消收藏「${recipe.name}」`)
+  } catch (exception) { notify(exception.message || '收藏状态更新失败') }
+}
+
+async function removeRecipeBookmark(recipe) {
+  if (!recipe.collected) return notify('公共菜谱不能删除，可通过收藏筛选管理个人菜谱')
+  await toggleRecipeBookmark(recipe)
+  if (cookingRecipe.value?.id === recipe.id) cookingRecipe.value = null
+}
+
 async function addMissing(recipe) {
   try {
     const listId = await ensureShoppingList()
@@ -444,7 +596,7 @@ async function estimateMealNutrition() {
   const version = ++mealEstimateVersion
   isEstimatingMeal.value = true
   mealEstimateError.value = ''
-  try { const result = await api.estimateMealNutrition({ dishName: name, amount: mealDraft.amount, unit: mealDraft.unit }); if (version === mealEstimateVersion) mealEstimate.value = result } catch { if (version === mealEstimateVersion) mealEstimateError.value = '热量估算失败，请重试' } finally { if (version === mealEstimateVersion) isEstimatingMeal.value = false }
+  try { const result = await api.estimateMealNutrition({ dishName: name, amount: mealDraft.amount || null, unit: apiUnit(mealDraft.unit) }); if (version === mealEstimateVersion) mealEstimate.value = result } catch { if (version === mealEstimateVersion) mealEstimateError.value = '热量估算失败，请重试' } finally { if (version === mealEstimateVersion) isEstimatingMeal.value = false }
 }
 watch(() => [mealDraft.name, mealDraft.amount, mealDraft.unit], () => {
   clearTimeout(mealEstimateTimer)
@@ -453,15 +605,21 @@ watch(() => [mealDraft.name, mealDraft.amount, mealDraft.unit], () => {
   if (!mealDraft.name.trim()) return
   mealEstimateTimer = setTimeout(estimateMealNutrition, 420)
 })
-function recordMeal() {
-  if (!mealDraft.name || !mealEstimate.value || isEstimatingMeal.value) return notify('请等待 AI 完成热量估算')
-  const record = { id: Date.now(), time: '18:45', name: mealDraft.meal, food: `${mealDraft.name}${mealDraft.amount ? ` · ${mealDraft.amount} ${mealDraft.unit}` : ''}`, kcal: mealEstimate.value.calories, icon: '🍽️' }
-  mealRecords.push(record)
-  histories['饮食记录'].unshift({ id: record.id, title: record.food, meta: `今天 ${record.time} · ${record.name}`, note: `${record.kcal} 千卡` })
-  Object.assign(mealDraft, { name: '', amount: '', unit: '克' })
-  clearMealEstimate()
-  showMealEditor.value = false
-  notify('饮食记录已添加')
+async function recordMeal() {
+  if (!mealDraft.name || !mealEstimate.value || isEstimatingMeal.value) return notify('请等待营养估算完成')
+  try {
+    await api.createMeal({
+      mealAt: new Date().toISOString(), mealType: mealDraft.meal, name: mealDraft.name.trim(), servings: 1,
+      calories: mealEstimate.value.calories, protein: mealEstimate.value.protein,
+      fat: mealEstimate.value.fat, carbs: mealEstimate.value.carbs,
+      estimated: mealEstimate.value.estimated, nutritionSource: mealEstimate.value.source,
+    })
+    await refreshMeals()
+    Object.assign(mealDraft, { name: '', amount: '', unit: '份' })
+    clearMealEstimate()
+    showMealEditor.value = false
+    notify('饮食记录已同步')
+  } catch (exception) { notify(exception.message || '饮食记录保存失败') }
 }
 
 function openShoppingEditor(item = null) {
@@ -514,7 +672,7 @@ async function confirmPurchase() {
 }
 function toggleRestock(id) { const index = selectedRestockIds.value.indexOf(id); index >= 0 ? selectedRestockIds.value.splice(index, 1) : selectedRestockIds.value.push(id) }
 async function addSelectedRestock() {
-  const selected = restockCandidates.filter(item => selectedRestockIds.value.includes(item.id))
+  const selected = restockCandidates.value.filter(item => selectedRestockIds.value.includes(item.id))
   if (!selected.length) return notify('请勾选要加入的补货项')
   try {
     const listId = await ensureShoppingList()
@@ -530,7 +688,6 @@ async function addSelectedRestock() {
   } catch (exception) { notify(exception.message || '补货项保存失败') }
 }
 async function removeShoppingItem(item) { try { await api.deleteShoppingItem(item.id); await refreshShopping(); notify('采购项目已删除') } catch (exception) { notify(exception.message || '采购项目删除失败') } }
-function removePurchaseHistory(item) { const index = histories['采购记录'].indexOf(item); if (index >= 0) histories['采购记录'].splice(index, 1); notify('入库记录已删除') }
 function exportShopping() { const text = `鲜知购物清单\n${shopping.filter(item => item.status !== 'stored').map(item => `- ${item.group}｜${item.name} ${item.amount}（${statusLabel(item.status)}）`).join('\n')}`; const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = '鲜知购物清单.txt'; link.click(); URL.revokeObjectURL(url); notify('购物清单已导出') }
 
 async function removeBoundSensor(sensor) {
@@ -554,7 +711,6 @@ function setZoneCount(value, silent = false) {
   if (!silent) notify(`冰箱已切换为 ${next} 个分区`)
 }
 function toggleTag(collection, value) { const index = collection.indexOf(value); index >= 0 ? collection.splice(index, 1) : collection.push(value) }
-function removeInventoryHistory(record) { const records = histories[record.historyKey]; const index = records.findIndex(item => item.id === record.id); if (index >= 0) records.splice(index, 1); notify('库存动态已删除') }
 async function saveProfile() {
   const username = profile.username.trim().toLowerCase()
   if (!USERNAME_PATTERN.test(username)) return notify('用户名只能包含 3-32 位小写字母、数字和下划线')
@@ -570,7 +726,11 @@ async function saveProfile() {
     session.user = updatedUser
     Object.assign(profile, { username: updatedUser.username, name: updatedUser.displayName, email: updatedUser.email, timezone: updatedUser.timezone })
     if (profile.password) await api.changePassword({ currentPassword: profile.currentPassword, newPassword: profile.password })
-    await api.updatePreferences({ ...preferences, fridge: { zoneCount: zoneCount.value, zones: zoneRegistry.map(({ id, name, kind, enabled, targetTemperature, targetHumidity }) => ({ id, name, kind, enabled, targetTemperature, targetHumidity })) } })
+    await api.updatePreferences({
+      tastes: [...preferences.tastes], cuisines: [...preferences.cuisine], allergies: [...preferences.allergies],
+      dislikes: [...preferences.dislikes], dietaryGoal: preferences.goal || null,
+      calorieTarget: Number(preferences.target), temperatureUnit: unit.value,
+    })
     profile.currentPassword = ''
     profile.password = ''
     profile.confirmPassword = ''
@@ -614,6 +774,10 @@ function applyFridgeSummary(fridge) {
 
 async function loadFridgeSummary() {
   if (!isAppRoute.value) return
+  recipes.splice(0, recipes.length)
+  mealRecords.splice(0, mealRecords.length)
+  histories['饮食记录'].splice(0, histories['饮食记录'].length)
+  assistantMessages.splice(0, assistantMessages.length)
   try {
     let fridge = session.fridge
     if (!fridge) {
@@ -631,7 +795,8 @@ async function loadFridgeSummary() {
       })
       unit.value = session.user.temperatureUnit || 'C'
     }
-    await Promise.all([refreshInventory(), refreshShopping(), refreshEnvironment()])
+    await Promise.all([refreshInventory(), refreshShopping(), refreshEnvironment(), refreshPreferences()])
+    await Promise.all([refreshRecipes(), refreshMeals(), refreshAssistantBriefing()])
   } catch { notify('冰箱配置同步失败，请刷新重试') }
 }
 
@@ -641,37 +806,43 @@ async function performLogout() {
 }
 
 watch(zoneCount, value => setZoneCount(value, true), { immediate: true })
+watch(isListening, active => {
+  if (active && !voiceUploadInProgress.value) {
+    isListening.value = false
+    openVoiceDraftUpload()
+  }
+})
 watch(() => route.params.page, value => { if (route.name === 'app') page.value = String(value || 'home') })
 watch(isAppRoute, active => { if (active) loadFridgeSummary() }, { immediate: true })
 
-async function assistantRoute(question) {
-  const text = question.toLowerCase()
-  if (/合成|配菜|食材组合/.test(text)) { go('synthesis'); return '已打开美味合成，把想用的食材放入合成区即可匹配菜谱。' }
-  if (/菜谱|做什么|推荐|吃什么|生成|想吃|想做/.test(text)) { await generateRecipes(question); go('recipes'); return `已生成 ${generatedRecipes.value.length} 张候选菜谱，勾选后即可保存。` }
-  if (/过期|保质|保鲜/.test(text)) { go('expiry'); return `已打开保质期模块。现在有 ${alerts.value.length} 项食材建议优先处理。` }
-  if (/饮食|健康|热量|卡路里/.test(text)) { go('diet'); return `已打开饮食健康。今日已记录 ${totalCalories.value} 千卡。` }
-  if (/购物|采购|买|缺/.test(text)) { go('shopping'); return `已打开购物清单，当前有 ${pendingShoppingCount.value} 项待购买。` }
-  if (/温度|湿度|分区|异常/.test(text)) { go('environment'); return `已打开环境提醒。当前有 ${warningZones.value.length} 个异常分区。` }
-  if (/库存|冰箱|食材/.test(text)) { go('inventory'); return `已打开库存。当前有 ${foods.length} 项食材，${alerts.value.length} 项临期。` }
-  return '可以直接问我“今天吃什么”“检查保质期”或“冰箱状态如何”。'
-}
 async function sendAssistantMessage(preset = '') {
   const text = (preset || assistantInput.value).trim()
   if (!text) return
-  const pageBeforeAssistantRoute = page.value
-  assistantMessages.push({ id: Date.now(), role: 'user', text })
+  assistantMessages.push({ id: `user-${Date.now()}`, role: 'user', text })
   assistantInput.value = ''
-  assistantMessages.push({ id: Date.now() + 1, role: 'assistant', text: await assistantRoute(text) })
-  if (page.value !== pageBeforeAssistantRoute) assistantOpen.value = false
+  try {
+    if (!assistantConversationId.value) {
+      const conversation = await api.createAssistantConversation('冰箱助手')
+      assistantConversationId.value = conversation.id
+    }
+    const response = await api.sendAssistantMessage(assistantConversationId.value, {
+      content: text, page: page.value, selection: {},
+    })
+    assistantMessages.push({ id: response.message.id, role: 'assistant', text: response.message.content })
+    assistantProposals.splice(0, assistantProposals.length, ...(response.actionProposals || []))
+  } catch (exception) {
+    assistantMessages.push({ id: `error-${Date.now()}`, role: 'assistant', text: exception.message || '助手暂时不可用，请稍后重试。' })
+  }
 }
 </script>
 
 <template>
   <RouterView v-if="!isAppRoute" />
   <div v-else class="app-shell" :class="{ 'home-shell': page === 'home' }">
+    <input ref="voiceFileInput" type="file" accept="audio/*" hidden @change="uploadVoiceDraft" />
     <div class="phase-status" aria-label="数据状态">
       <span><i></i>冰箱配置已同步</span>
-      <em>业务数据演示</em>
+      <em>实时 API 数据</em>
       <strong>{{ session.user?.displayName }}</strong>
       <button title="退出登录" aria-label="退出登录" @click="performLogout"><span v-html="icon('logout', 17)"></span></button>
     </div>
@@ -699,7 +870,7 @@ async function sendAssistantMessage(preset = '') {
           <section class="page-intro"><div><p class="eyebrow">{{ foods.length }} 项库存</p><h1>冰箱库存</h1><p>按分区、类别和新鲜程度整理每一份食材。</p></div><div class="intro-actions"><button class="secondary-btn" :class="{ listening: isListening }" @click="isListening = !isListening">语音添加</button><button class="primary-btn" @click="showAdd = true"><span v-html="icon('plus', 18)"></span>添加食材</button></div></section>
           <div class="tabs"><button v-for="type in ['全部', '食材', '零食饮料']" :key="type" :class="{ active: inventoryType === type }" @click="inventoryType = type">{{ type }}</button></div><section class="inventory-toolbar"><div class="filter-pills"><button v-for="zone in ['全部', ...allZoneNames, '常温储物区']" :key="zone" :class="{ active: inventoryFilter === zone }" @click="inventoryFilter = zone">{{ zone }}</button></div><label class="mini-search"><span v-html="icon('search', 16)"></span><input v-model="search" placeholder="搜索库存" /></label></section>
           <section class="inventory-table"><div class="table-head"><span>食材</span><span>存放位置</span><span>剩余数量</span><span>新鲜度 / 建议期限</span><span>热量</span><span></span></div><div v-for="food in filteredFoods" :key="food.id" class="food-row"><span class="food-name"><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }}</small></span></span><span><b>{{ zoneNameForFood(food) }}</b><small>{{ food.zoneId && !zoneById(food.zoneId)?.enabled ? '已隐藏 · ' : '' }}{{ food.source }}</small></span><span class="quantity-cell"><span class="quantity-stepper"><button :disabled="Number(food.amount || 0) <= 0" @click="adjustFoodAmount(food, -1)"><span v-html="icon('minus', 14)"></span></button><input :value="food.amount" type="number" min="0" @change="updateFoodAmount(food, $event.target.value)" /><button @click="adjustFoodAmount(food, 1)"><span v-html="icon('plus', 14)"></span></button></span><small>{{ food.unit }}</small></span><span class="fresh-cell"><i><em :class="food.status" :style="{ width: food.percent + '%' }"></em></i><small :class="food.status">{{ food.days }} 天后建议食用完</small></span><span><b>{{ food.calories }}</b><small>千卡 / 100克</small></span><span class="row-actions"><button title="编辑食材" @click="editFood(food)"><span v-html="icon('edit', 16)"></span></button></span></div></section>
-          <section class="module-history compact-history inventory-history"><div class="section-head"><div><p class="eyebrow">库存动态</p><h2>最近入库与使用</h2></div></div><article v-for="item in inventoryHistory.slice(0, 5)" :key="`${item.historyKey}-${item.id}`"><span v-html="icon(item.type === '入库' ? 'box' : 'pan', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.meta }}</small></div><em>{{ item.note }}</em><button title="删除记录" @click="removeInventoryHistory(item)"><span v-html="icon('trash', 15)"></span></button></article></section>
+          <section class="module-history compact-history inventory-history"><div class="section-head"><div><p class="eyebrow">库存动态</p><h2>最近入库与使用</h2></div></div><article v-for="item in inventoryHistory.slice(0, 5)" :key="`${item.historyKey}-${item.id}`"><span v-html="icon(item.type === '入库' ? 'box' : 'pan', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.meta }}</small></div><em>{{ item.note }}</em></article></section>
         </template>
 
         <template v-else-if="page === 'expiry'">
@@ -713,7 +884,7 @@ async function sendAssistantMessage(preset = '') {
         <template v-else-if="page === 'recipes'">
           <section class="page-intro"><div><p class="eyebrow">AI 根据库存与偏好生成</p><h1>菜谱生成</h1><p>已避开 {{ preferences.allergies.concat(preferences.dislikes).join('、') }}，并优先匹配{{ preferences.goal }}目标。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>选择库存食材</button><button class="secondary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('edit', 18)"></span>按菜名生成</button><button class="primary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe"><span v-html="icon('spark', 18)"></span>{{ isGeneratingRecipe ? 'AI 生成中' : 'AI 生成 3 张菜谱' }}</button></div></section>
           <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">AI 候选结果</p><h2>{{ generatedRecipeSelectionCount ? `按已选 ${generatedRecipeSelectionCount} 项库存食材生成` : '选择想保存的菜谱' }}</h2><p>可多选；未保存的候选结果会在关闭后丢弃。</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消本次生成</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">保存已选 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art" :style="{ background: recipe.color }"><span>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></div></section>
-          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art" :style="{ background: recipe.color }"><span>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="recipe.collected = !recipe.collected"><span v-html="icon('heart', 18)"></span></button><button title="删除菜谱" @click="deleteRecipe(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>还没有已保存的菜谱</h2><p>让 AI 根据库存一次生成 3 个方案，选择后保存。</p></section>
+          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art" :style="{ background: recipe.color }"><span>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>请确认后端已导入并发布菜谱数据。</p></section>
         </template>
 
         <template v-else-if="page === 'cooking'">
@@ -725,7 +896,7 @@ async function sendAssistantMessage(preset = '') {
         </template>
 
         <template v-else-if="page === 'shopping'">
-          <section class="page-intro"><div><p class="eyebrow">自动补货与菜谱缺料</p><h1>采购清单</h1><p>采购状态由你决定；入库时再确认实际数量和存放位置。</p></div><div class="intro-actions"><button class="secondary-btn" @click="exportShopping"><span v-html="icon('download', 18)"></span>导出 txt</button><button class="primary-btn" @click="openShoppingEditor()"><span v-html="icon('plus', 18)"></span>添加项目</button></div></section><div class="filter-pills shopping-filters"><button v-for="group in ['全部', '蔬果', '主食', '调味品', '菜谱缺料', '其他']" :key="group" :class="{ active: shoppingGroup === group }" @click="shoppingGroup = group">{{ group }}</button></div><section class="shopping-layout"><div class="shopping-list"><div class="shopping-head"><h2>{{ pendingShoppingCount }} 项待购买</h2><span>预计 ¥86</span></div><article v-for="item in visibleShopping" :key="item.id" class="shop-item" :class="`status-${item.status}`"><span class="shop-group">{{ item.group }}</span><span><b>{{ item.name }}</b><small>{{ item.note }}</small></span><em>{{ item.amount }}</em><select :value="item.status" :aria-label="`${item.name} 的采购状态`" @change="updateShoppingStatus(item, $event.target.value)"><option value="pending">待购买</option><option value="purchased">已购买</option><option value="stored">已入库</option></select><button title="编辑项目" @click="openShoppingEditor(item)"><span v-html="icon('edit', 16)"></span></button><button title="删除项目" @click="removeShoppingItem(item)"><span v-html="icon('trash', 16)"></span></button></article></div><aside class="smart-list restock-list"><span v-html="icon('spark', 24)"></span><h2>AI 补货依据</h2><p>根据常用库存、当前缺少食材和已保存菜谱生成，勾选后才会加入清单。</p><label v-for="item in restockCandidates" :key="item.id" class="restock-candidate"><input type="checkbox" :checked="selectedRestockIds.includes(item.id)" @change="toggleRestock(item.id)" /><span><b>{{ item.name }}</b><small>{{ item.current }} · 阈值 {{ item.threshold }}</small><em>{{ item.note }}，建议买 {{ item.amount }}</em></span></label><button class="secondary-btn" :disabled="!selectedRestockIds.length" @click="addSelectedRestock">加入已选补货项</button></aside></section><section class="module-history compact-history"><div class="section-head"><div><p class="eyebrow">采购历史</p><h2>最近入库</h2></div></div><article v-for="item in histories['采购记录'].slice(0, 4)" :key="item.id"><span v-html="icon('bag', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.meta }}</small></div><em>{{ item.note }}</em><button title="删除入库记录" @click="removePurchaseHistory(item)"><span v-html="icon('trash', 15)"></span></button></article></section>
+          <section class="page-intro"><div><p class="eyebrow">自动补货与菜谱缺料</p><h1>采购清单</h1><p>采购状态由你决定；入库时再确认实际数量和存放位置。</p></div><div class="intro-actions"><button class="secondary-btn" @click="exportShopping"><span v-html="icon('download', 18)"></span>导出 txt</button><button class="primary-btn" @click="openShoppingEditor()"><span v-html="icon('plus', 18)"></span>添加项目</button></div></section><div class="filter-pills shopping-filters"><button v-for="group in ['全部', '蔬果', '主食', '调味品', '菜谱缺料', '其他']" :key="group" :class="{ active: shoppingGroup === group }" @click="shoppingGroup = group">{{ group }}</button></div><section class="shopping-layout"><div class="shopping-list"><div class="shopping-head"><h2>{{ pendingShoppingCount }} 项待购买</h2><span>{{ visibleShopping.length }} 项清单数据</span></div><article v-for="item in visibleShopping" :key="item.id" class="shop-item" :class="`status-${item.status}`"><span class="shop-group">{{ item.group }}</span><span><b>{{ item.name }}</b><small>{{ item.note }}</small></span><em>{{ item.amount }}</em><select :value="item.status" :aria-label="`${item.name} 的采购状态`" @change="updateShoppingStatus(item, $event.target.value)"><option value="pending">待购买</option><option value="purchased">已购买</option><option value="stored">已入库</option></select><button title="编辑项目" @click="openShoppingEditor(item)"><span v-html="icon('edit', 16)"></span></button><button title="删除项目" @click="removeShoppingItem(item)"><span v-html="icon('trash', 16)"></span></button></article></div><aside class="smart-list restock-list"><span v-html="icon('spark', 24)"></span><h2>补货依据</h2><p>根据后端低库存状态和已加载菜谱缺料实时生成，勾选后才会加入清单。</p><p v-if="!restockCandidates.length">当前没有补货候选。</p><label v-for="item in restockCandidates" :key="item.id" class="restock-candidate"><input type="checkbox" :checked="selectedRestockIds.includes(item.id)" @change="toggleRestock(item.id)" /><span><b>{{ item.name }}</b><small>{{ item.current }} · 阈值 {{ item.threshold }}</small><em>{{ item.note }}，建议买 {{ item.amount }}</em></span></label><button class="secondary-btn" :disabled="!selectedRestockIds.length" @click="addSelectedRestock">加入已选补货项</button></aside></section><section class="module-history compact-history"><div class="section-head"><div><p class="eyebrow">采购历史</p><h2>最近入库</h2></div></div><article v-for="item in histories['采购记录'].slice(0, 4)" :key="item.id"><span v-html="icon('bag', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.meta }}</small></div><em>{{ item.note }}</em></article></section>
         </template>
 
         <template v-else-if="page === 'settings'">

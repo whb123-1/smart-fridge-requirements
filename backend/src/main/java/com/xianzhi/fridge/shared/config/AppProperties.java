@@ -1,6 +1,8 @@
 package com.xianzhi.fridge.shared.config;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "app")
@@ -21,6 +23,7 @@ public class AppProperties {
         private Duration refreshTtl = Duration.ofDays(30);
         private String refreshCookieName = "xianzhi_refresh";
         private boolean refreshCookieSecure;
+        private List<String> adminUsernames = new ArrayList<>();
 
         public String getJwtIssuer() { return jwtIssuer; }
         public void setJwtIssuer(String jwtIssuer) { this.jwtIssuer = jwtIssuer; }
@@ -34,6 +37,8 @@ public class AppProperties {
         public void setRefreshCookieName(String refreshCookieName) { this.refreshCookieName = refreshCookieName; }
         public boolean isRefreshCookieSecure() { return refreshCookieSecure; }
         public void setRefreshCookieSecure(boolean refreshCookieSecure) { this.refreshCookieSecure = refreshCookieSecure; }
+        public List<String> getAdminUsernames() { return adminUsernames; }
+        public void setAdminUsernames(List<String> adminUsernames) { this.adminUsernames = adminUsernames == null ? new ArrayList<>() : adminUsernames; }
     }
 
     public static class RateLimit {

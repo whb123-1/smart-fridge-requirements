@@ -11,6 +11,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -34,6 +36,12 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.badRequest().body(ApiEnvelope.error(
                 "VALIDATION_ERROR", "Request validation failed", Map.of("fields", fields)));
+    }
+
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
+    public ResponseEntity<ApiEnvelope<Map<String, Object>>> handleForbidden(RuntimeException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiEnvelope.error("FORBIDDEN", "Access is denied", Map.of()));
     }
 
     @ExceptionHandler(Exception.class)

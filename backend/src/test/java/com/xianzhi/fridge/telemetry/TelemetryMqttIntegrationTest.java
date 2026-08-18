@@ -147,7 +147,7 @@ class TelemetryMqttIntegrationTest {
     }
 
     private void publish(JsonNode credential, String payload) throws Exception {
-        MqttAsyncClient client = new MqttAsyncClient(brokerUrl(), credential.path("clientId").asText() + "-publisher");
+        MqttAsyncClient client = new MqttAsyncClient(brokerUrl(), credential.path("clientId").asText());
         try {
             MqttConnectionOptions options = new MqttConnectionOptions();
             options.setUserName(credential.path("username").asText());

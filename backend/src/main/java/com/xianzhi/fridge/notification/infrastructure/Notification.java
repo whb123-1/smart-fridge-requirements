@@ -22,6 +22,7 @@ public class Notification {
     @Column(nullable = false, length = 160) private String title;
     @Column(nullable = false, length = 1000) private String body;
     @Column(name = "deep_link", length = 255) private String deepLink;
+    @Column(name = "in_app_visible", nullable = false) private boolean inAppVisible = true;
     @Column(name = "resolved_at") private Instant resolvedAt;
     @Column(name = "read_at") private Instant readAt;
     @Column(name = "dismissed_at") private Instant dismissedAt;
@@ -39,6 +40,7 @@ public class Notification {
     public void resolve(Instant now) { if (resolvedAt == null) resolvedAt = now; updatedAt = now; }
     public void setRead(boolean read, Instant now) { readAt = read ? now : null; updatedAt = now; }
     public void setDismissed(boolean dismissed, Instant now) { dismissedAt = dismissed ? now : null; updatedAt = now; }
+    public void setInAppVisible(boolean visible) { inAppVisible = visible; }
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public String getNotificationType() { return notificationType; }
@@ -48,6 +50,7 @@ public class Notification {
     public String getTitle() { return title; }
     public String getBody() { return body; }
     public String getDeepLink() { return deepLink; }
+    public boolean isInAppVisible() { return inAppVisible; }
     public Instant getResolvedAt() { return resolvedAt; }
     public Instant getReadAt() { return readAt; }
     public Instant getDismissedAt() { return dismissedAt; }
