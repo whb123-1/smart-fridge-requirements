@@ -20,7 +20,11 @@ class OpenApiContractTest {
         Map<String, Object> paths = (Map<String, Object>) root.get("paths");
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(Set.of(
                 "/auth/register", "/auth/login", "/auth/refresh", "/auth/logout",
-                "/me", "/me/password", "/onboarding", "/onboarding/initialize", "/fridges"));
+                "/me", "/me/password", "/onboarding", "/onboarding/initialize", "/fridges",
+                "/inventory/items", "/inventory/items/{id}", "/inventory/items/{id}/batches",
+                "/inventory/batches/{id}", "/inventory/batches/{id}/transactions", "/expiry",
+                "/inventory/batches/{id}/assessments", "/catalog/suggestions", "/catalog/weight-estimates",
+                "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store"));
 
         Map<String, Object> components = (Map<String, Object>) root.get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

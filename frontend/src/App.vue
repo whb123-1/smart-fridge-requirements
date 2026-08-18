@@ -50,14 +50,16 @@ const mealEstimate = ref(null)
 const mealEstimateError = ref('')
 const selectedRestockIds = ref([])
 const foodUpdateVersions = new Map()
+const shoppingListId = ref(null)
+const expiryRecords = reactive([])
 const USERNAME_PATTERN = /^[a-z0-9_]{3,32}$/
 
 const foodDraft = reactive({})
 const shopDraft = reactive({ id: null, name: '', group: '其他', amount: '1 份', note: '', status: 'pending' })
 const sensorDraft = reactive({ name: '', type: 'temperature' })
-const newFood = reactive({ name: '', category: '蔬菜', amount: '', unit: '克', zone: '冷藏区', zoneId: 1, date: '2026-08-14', shelf: '7', reminder: '2026-08-20' })
+const newFood = reactive({ name: '', category: '蔬菜', amount: '', unit: '克', zone: '冷藏区', zoneId: null, date: '2026-08-14', shelf: '7', reminder: '2026-08-20' })
 const mealDraft = reactive({ name: '', meal: '晚餐', amount: '', unit: '克' })
-const purchaseDraft = reactive({ amount: '', unit: '克', zone: '冷藏区', zoneId: 1, shelf: '7' })
+const purchaseDraft = reactive({ amount: '', unit: '克', zone: '冷藏区', zoneId: null, shelf: '7' })
 
 const zoneCount = ref(4)
 const zoneRegistry = reactive([
@@ -83,27 +85,17 @@ const zoneRegistry = reactive([
 
 const zones = computed(() => zoneRegistry.filter(zone => zone.enabled))
 
-const foods = reactive([
-  { id: 1, name: '上海青', icon: '🥬', category: '蔬菜', zone: '保鲜抽屉', amount: 420, unit: '克', calories: 18, days: 1, status: 'urgent', percent: 16, received: '2026-08-11', reminder: '2026-08-14', source: 'AI 按实测温湿度估算' },
-  { id: 2, name: '鲜牛奶', icon: '🥛', category: '饮料', zone: '冷藏区', amount: 680, unit: '毫升', calories: 54, days: 2, status: 'soon', percent: 28, received: '2026-08-12', reminder: '2026-08-15', source: 'AI 按实测温湿度估算' },
-  { id: 3, name: '鸡胸肉', icon: '🍗', category: '肉蛋', zone: '冷藏区', amount: 520, unit: '克', calories: 133, days: 3, status: 'soon', percent: 42, received: '2026-08-12', reminder: '2026-08-16', source: 'AI 按实测温湿度估算' },
-  { id: 4, name: '北豆腐', icon: '◻️', category: '豆制品', zone: '冷藏区', amount: 2, unit: '盒', calories: 116, days: 4, status: 'fresh', percent: 58, received: '2026-08-11', reminder: '2026-08-17', source: '按参考温湿度估算' },
-  { id: 5, name: '鸡蛋', icon: '🥚', category: '肉蛋', zone: '冷藏区', amount: 8, unit: '个', calories: 144, days: 12, status: 'fresh', percent: 78, received: '2026-08-07', reminder: '2026-08-25', source: 'AI 按实测温湿度估算' },
-  { id: 6, name: '三文鱼', icon: '🐟', category: '水产', zone: '冷冻区', amount: 300, unit: '克', calories: 208, days: 26, status: 'fresh', percent: 88, received: '2026-08-10', reminder: '2026-09-09', source: 'AI 按实测温湿度估算' },
-  { id: 7, name: '无糖酸奶', icon: '🥣', category: '零食', zone: '冷藏区', amount: 3, unit: '杯', calories: 72, days: 6, status: 'fresh', percent: 64, received: '2026-08-10', reminder: '2026-08-19', source: '按参考温湿度估算' },
-  { id: 8, name: '低钠生抽', icon: '🍶', category: '调味品', zone: '常温储物区', amount: 320, unit: '毫升', calories: 63, days: 120, status: 'fresh', percent: 70, received: '2026-07-01', reminder: '2026-12-12', source: '用户设置提醒' },
-])
+const foods = reactive([])
 
-function zoneById(id) { return zoneRegistry.find(zone => zone.id === Number(id)) }
+function zoneById(id) { return zoneRegistry.find(zone => String(zone.id) === String(id)) }
 function zoneByName(name) { return zoneRegistry.find(zone => zone.name === name) }
 function zoneNameForId(id, fallback = '常温储物区') { return zoneById(id)?.name || fallback }
 function zoneNameForFood(food) { return zoneNameForId(food.zoneId, food.zone) }
 function normalizeZoneId(value, fallback = null) {
   if (value === null || value === undefined || value === '') return null
-  const id = Number(value)
-  return Number.isInteger(id) && zoneById(id) ? id : fallback
+  const id = String(value)
+  return zoneById(id) ? id : fallback
 }
-foods.forEach(food => { food.zoneId = zoneByName(food.zone)?.id || null })
 
 const recipes = reactive([
   { id: 1, name: '鸡胸肉豆腐煲', desc: '清淡不寡淡，正好优先处理临期鸡胸肉', time: 25, kcal: 386, protein: 42, match: 100, level: '可直接制作', color: '#dfe9df', art: '🍲', tags: ['高蛋白', '低油'], favorite: true, collected: false, missing: [], base: 300, ingredients: [{ name: '鸡胸肉', amount: 300, unit: '克' }, { name: '北豆腐', amount: 1, unit: '盒' }, { name: '上海青', amount: 200, unit: '克' }], seasonings: [{ name: '低钠生抽', amount: 10, unit: '毫升' }], steps: ['鸡胸肉切块，用少量生抽和姜片腌制 5 分钟。', '豆腐切块，与鸡胸肉一起小火煎至表面微黄。', '加入清水炖煮 12 分钟，放入上海青煮熟即可。'] },
@@ -111,12 +103,7 @@ const recipes = reactive([
   { id: 3, name: '香煎三文鱼温沙拉', desc: '缺少小番茄，可用苹果替代增加清甜', time: 22, kcal: 438, protein: 32, match: 88, level: '可替代制作', color: '#f1e1d6', art: '🥗', tags: ['优质脂肪', '可替代'], favorite: false, collected: true, missing: ['小番茄'], base: 250, ingredients: [{ name: '三文鱼', amount: 250, unit: '克' }, { name: '小番茄', amount: 120, unit: '克' }], seasonings: [{ name: '黑胡椒', amount: 2, unit: '克' }], steps: ['三文鱼擦干水分，撒黑胡椒。', '平底锅小火煎至两面熟透。', '配上蔬菜和柠檬汁拌匀。'] },
 ])
 
-const shopping = reactive([
-  { id: 1, name: '小番茄', note: '三文鱼温沙拉需要', amount: '250 克', status: 'pending', group: '蔬果' },
-  { id: 2, name: '燕麦片', note: '低于常用库存', amount: '1 袋', status: 'pending', group: '主食' },
-  { id: 3, name: '柠檬', note: '2 道收藏菜谱需要', amount: '2 个', status: 'purchased', group: '蔬果' },
-  { id: 4, name: '黑胡椒', note: '调味品即将用完', amount: '1 瓶', status: 'pending', group: '调味品' },
-])
+const shopping = reactive([])
 
 const restockCandidates = reactive([
   { id: 'restock-oats', name: '燕麦片', group: '主食', current: '0 袋', threshold: '1 袋', amount: '1 袋', note: '常用库存低于阈值' },
@@ -136,7 +123,7 @@ const mealRecords = reactive([
 const histories = reactive({
   '饮食记录': [{ id: 1, title: '番茄牛肉盖饭', meta: '今天 12:35 · 午餐', note: '642 千卡' }, { id: 2, title: '无糖酸奶燕麦杯', meta: '今天 08:10 · 早餐', note: '268 千卡' }],
   '做菜记录': [{ id: 1, title: '蒜蓉上海青', meta: '昨天 18:42 · 已完成', note: '96 千卡' }],
-  '采购记录': [{ id: 1, title: '鸡蛋、无糖酸奶', meta: '2026-08-12 · 已入库', note: '2 项' }],
+  '采购记录': [],
 })
 const assistantMessages = reactive([{ id: 1, role: 'assistant', text: '你好，我是鲜知助手。可以帮你推荐菜谱、检查保质期、评估饮食或生成购物清单。' }])
 
@@ -174,6 +161,36 @@ const assistantPageName = computed(() => ({ home: '首页', inventory: '库存',
 
 const categoryIcons = Object.freeze({ 蔬菜: '🥬', 水果: '🍎', 水产: '🐟', 豆制品: '◻️', 零食: '🍪', 饮料: '🥛', 调味品: '🍶' })
 
+const categoryCode = Object.freeze({ 蔬菜: 'VEGETABLE', 水果: 'FRUIT', 肉蛋: 'MEAT_EGG', 水产: 'SEAFOOD', 豆制品: 'BEAN', 零食: 'SNACK', 饮料: 'BEVERAGE', 调味品: 'CONDIMENT', 主食: 'OTHER', 蔬果: 'VEGETABLE', 菜谱缺料: 'OTHER', 其他: 'OTHER' })
+const categoryLabel = Object.freeze({ VEGETABLE: '蔬菜', FRUIT: '水果', MEAT_EGG: '肉蛋', SEAFOOD: '水产', DAIRY: '饮料', BEAN: '豆制品', SNACK: '零食', BEVERAGE: '饮料', CONDIMENT: '调味品', OTHER: '其他' })
+const unitCode = Object.freeze({ 克: 'g', 千克: 'kg', 个: 'piece', 盒: 'box', 瓶: 'bottle', 袋: 'bag', 杯: 'cup', 毫升: 'ml', 份: 'serving' })
+const unitLabel = Object.freeze({ g: '克', kg: '千克', piece: '个', box: '盒', bottle: '瓶', bag: '袋', cup: '杯', ml: '毫升', serving: '份' })
+function apiCategory(value) { return categoryCode[value] || value || 'OTHER' }
+function displayCategory(value) { return categoryLabel[value] || value || '其他' }
+function apiUnit(value) { return unitCode[value] || value || 'piece' }
+function displayUnit(value) { return unitLabel[value] || value || '个' }
+function inventoryStatus(assessment, remaining) {
+  if (!Number(remaining)) return 'fresh'
+  if (assessment?.safetyStatus === 'EXPIRED' || (assessment?.estimatedExpiryAt && new Date(assessment.estimatedExpiryAt) < new Date())) return 'urgent'
+  if (assessment?.safetyStatus === 'EXPIRING_SOON') return 'soon'
+  return 'fresh'
+}
+function inventoryDays(assessment) {
+  if (!assessment?.estimatedExpiryAt) return null
+  return Math.ceil((new Date(assessment.estimatedExpiryAt).getTime() - Date.now()) / 86400000)
+}
+function mapInventoryItem(item) {
+  const batch = item.batches?.[0] || {}
+  const assessment = batch.assessment || null
+  const days = inventoryDays(assessment)
+  return { id: item.id, batchId: batch.id, name: item.name, icon: foodIcon(displayCategory(item.category), item.name), category: displayCategory(item.category), zoneId: batch.zoneId || null, zone: zoneNameForId(batch.zoneId), amount: Number(batch.remainingQuantity || 0), unit: displayUnit(batch.unit || item.defaultUnit), apiUnit: batch.unit || item.defaultUnit, calories: 50, days: days ?? 999, status: inventoryStatus(assessment, batch.remainingQuantity), percent: days == null ? 0 : Math.max(0, Math.min(100, Math.round(days / 30 * 100))), received: batch.storedAt ? String(batch.storedAt).slice(0, 10) : '', reminder: batch.remindAt ? String(batch.remindAt).slice(0, 10) : '', source: assessment?.explanation || '暂无保质期依据', lowStock: Boolean(item.lowStock), rawCategory: item.category }
+}
+function mapShoppingItem(item) {
+  const amount = item.quantity == null ? '' : `${item.quantity} ${displayUnit(item.unit)}`
+  const group = item.sourceType === 'RECIPE_MISSING' ? '菜谱缺料' : ({ VEGETABLE: '蔬果', FRUIT: '蔬果', CONDIMENT: '调味品' })[item.category] || '其他'
+  return { id: item.id, name: item.name, note: item.note || '', amount, quantity: item.quantity, unit: item.unit, status: String(item.status || 'PENDING').toLowerCase(), group, sourceType: item.sourceType }
+}
+
 function icon(name, size = 20) {
   const paths = {
     box: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>', book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z"/><path d="M4 6.5v13M8 8h8"/>', spark: '<path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="m18.5 15 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>', bag: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>', check: '<path d="m5 12 4 4L19 6"/>', heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5a5.5 5.5 0 0 0 1.1-8.9z"/>', close: '<path d="M6 6l12 12M18 6 6 18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6v.2h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', pan: '<path d="M3 13h13a5 5 0 0 1-10 0H3z"/><path d="M16 13h5M8 7c0-2 2-2 2-4M13 7c0-2 2-2 2-4"/>', trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>', edit: '<path d="m4 20 4.3-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/>', download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', thermometer: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z"/><path d="M12 9v7"/>', drop: '<path d="M12 3s5 5.3 5 10a5 5 0 0 1-10 0c0-4.7 5-10 5-10Z"/>', alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/>', arrow: '<path d="m14.5 5-7 7 7 7"/><path d="M8 12h12"/>', list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>', logout: '<path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10"/>',
@@ -192,36 +209,92 @@ function normalizeFoodAmount(value) { if (value === '' || value === null || valu
 function statusLabel(status) { return ({ pending: '待购买', purchased: '已购买', stored: '已入库' })[status] || '待购买' }
 function zoneDeviation(zone) { return zone.temp - zone.targetTemperature }
 
+async function refreshInventory() {
+  const fridgeId = session.fridge?.id
+  if (!fridgeId) return
+  const [remote, expiry] = await Promise.all([api.listInventoryItems({ fridgeId }), api.getExpiry({ fridgeId })])
+  foods.splice(0, foods.length, ...remote.map(mapInventoryItem))
+  expiryRecords.splice(0, expiryRecords.length, ...(expiry || []))
+  zones.value.forEach(zone => { zone.items = foods.filter(food => String(food.zoneId) === String(zone.id)).length })
+}
+
+async function refreshShopping() {
+  const lists = await api.getShoppingLists()
+  const selected = lists.find(item => item.fridgeId === session.fridge?.id) || lists[0] || null
+  shoppingListId.value = selected?.id || null
+  shopping.splice(0, shopping.length, ...(selected?.items || []).map(mapShoppingItem))
+  histories['采购记录'].splice(0, histories['采购记录'].length, ...shopping
+    .filter(item => item.status === 'stored')
+    .map(item => ({ id: item.id, title: item.name, meta: '采购入库 · 已完成', note: item.amount || '数量未记录' })))
+}
+
+async function ensureShoppingList() {
+  if (shoppingListId.value) return shoppingListId.value
+  const created = await api.createShoppingList({ fridgeId: session.fridge?.id, name: '默认采购清单' })
+  shoppingListId.value = created.id
+  return created.id
+}
+
 async function addFood() {
   if (!newFood.name) return notify('请填写食材名称')
-  const amount = normalizeFoodAmount(newFood.amount)
-  const zoneId = normalizeZoneId(newFood.zoneId, 1)
-  const zone = zoneNameForId(zoneId)
-  const created = await api.addFood({ ...newFood, zoneId, zone, amount })
-  foods.unshift({ ...created, zoneId, zone, id: created.id || Date.now(), icon: foodIcon(created.category, created.name), calories: 50, days: Number(newFood.shelf || 7), status: statusFor(newFood.shelf), percent: 82, received: newFood.date, reminder: newFood.reminder || dateAfter(newFood.shelf), source: '按参考温湿度估算' })
-  histories['采购记录'].unshift({ id: Date.now(), title: newFood.name, meta: '今天 · 手动入库', note: amount === '' ? '未记录' : `${amount} ${newFood.unit}` })
-  Object.assign(newFood, { name: '', amount: '' })
-  showAdd.value = false
-  notify('食材已放入冰箱')
+  try {
+    const zoneId = normalizeZoneId(newFood.zoneId, zones.value[0]?.id || null)
+    await api.createInventoryItem({
+      fridgeId: session.fridge?.id,
+      name: newFood.name.trim(),
+      category: apiCategory(newFood.category),
+      defaultUnit: apiUnit(newFood.unit),
+      batches: [{ zoneId, storedAt: newFood.date ? new Date(`${newFood.date}T00:00:00`).toISOString() : null, shelfLifeDays: newFood.shelf === '' ? null : Number(newFood.shelf), quantity: Number(newFood.amount || 0), unit: apiUnit(newFood.unit), remindAt: newFood.reminder ? new Date(`${newFood.reminder}T00:00:00`).toISOString() : null }],
+    })
+    await refreshInventory()
+    Object.assign(newFood, { name: '', amount: '' })
+    showAdd.value = false
+    notify('食材已放入冰箱')
+    return
+  } catch (exception) {
+    notify(exception.message || '食材入库失败，请稍后重试')
+    return
+  }
 }
 
 function editFood(food) { selectedFood.value = food; Object.assign(foodDraft, { ...food, zoneId: food.zoneId ?? zoneByName(food.zone)?.id ?? null }); showFoodEditor.value = true }
 async function saveFood() {
-  if (!foodDraft.name) return notify('请填写食材名称')
   const food = selectedFood.value
   if (!food) return
-  const zoneId = normalizeZoneId(foodDraft.zoneId, food.zoneId ?? null)
-  const draft = { ...foodDraft, zoneId, zone: zoneNameForId(zoneId), amount: normalizeFoodAmount(foodDraft.amount), icon: foodIcon(foodDraft.category, foodDraft.name) }
-  try { Object.assign(food, await api.updateFood(draft)); showFoodEditor.value = false; notify(`${food.name} 已更新`) } catch { notify('保存失败，请稍后重试') }
+  try {
+    const zoneId = normalizeZoneId(foodDraft.zoneId, food.zoneId ?? null)
+    await api.updateInventoryItem(food.id, { name: foodDraft.name.trim(), category: apiCategory(foodDraft.category), defaultUnit: apiUnit(foodDraft.unit || food.unit) })
+    if (food.batchId) {
+      await api.updateInventoryBatch(food.batchId, { zoneId })
+      if (normalizeFoodAmount(foodDraft.amount) !== Number(food.amount)) await api.transactInventoryBatch(food.batchId, { type: 'ADJUST', quantity: normalizeFoodAmount(foodDraft.amount), unit: apiUnit(foodDraft.unit || food.unit) })
+    }
+    await refreshInventory()
+    showFoodEditor.value = false
+    notify(`${foodDraft.name} 已更新`)
+    return
+  } catch (exception) {
+    notify(exception.message || '保存失败，请稍后重试')
+    return
+  }
 }
-function deleteFood(food) { const index = foods.indexOf(food); if (index >= 0) foods.splice(index, 1); showFoodEditor.value = false; notify(`${food.name} 已移出库存`) }
+async function deleteFood(food) {
+  try { await api.deleteInventoryItem(food.id); await refreshInventory(); showFoodEditor.value = false; notify(`${food.name} 已移出库存`) }
+  catch (exception) { notify(exception.message || '删除失败，请先处理活动批次') }
+}
 async function updateFoodAmount(food, value) {
   const previousAmount = food.amount
   const amount = normalizeFoodAmount(value)
-  const version = (foodUpdateVersions.get(food.id) || 0) + 1
-  foodUpdateVersions.set(food.id, version)
-  food.amount = amount
-  try { const updated = await api.updateFood({ ...food }); if (foodUpdateVersions.get(food.id) === version) Object.assign(food, updated) } catch { if (foodUpdateVersions.get(food.id) === version) food.amount = previousAmount; notify('数量保存失败，请稍后重试') }
+  if (!food.batchId) return
+  try {
+    const updated = await api.transactInventoryBatch(food.batchId, { type: 'ADJUST', quantity: amount, unit: food.apiUnit || apiUnit(food.unit) })
+    food.amount = Number(updated.remainingQuantity ?? amount)
+    await refreshInventory()
+    return
+  } catch (exception) {
+    food.amount = previousAmount
+    notify(exception.message || '数量保存失败，请稍后重试')
+    return
+  }
 }
 function adjustFoodAmount(food, change) { return updateFoodAmount(food, Math.max(0, Number(food.amount || 0) + change)) }
 
@@ -280,7 +353,16 @@ function completeCooking() {
   histories['饮食记录'].unshift({ id: Date.now() + 1, title: cookingRecipe.value.name, meta: '今天 18:40 · 晚餐', note: `${scaledKcal.value} 千卡` })
   notify('已完成制作，已记录饮食并扣减可计量库存')
 }
-function addMissing(recipe) { recipe.missing.forEach(name => { if (!shopping.some(item => item.name === name)) shopping.push({ id: Date.now() + shopping.length, name, note: `${recipe.name} 缺少`, amount: '1 份', status: 'pending', group: '菜谱缺料' }) }); notify('缺少食材已加入购物清单') }
+async function addMissing(recipe) {
+  try {
+    const listId = await ensureShoppingList()
+    for (const name of recipe.missing) {
+      if (!shopping.some(item => item.name === name)) await api.createShoppingItem(listId, { name, category: 'OTHER', quantity: 1, unit: 'serving', note: `${recipe.name} 缺少`, sourceType: 'RECIPE_MISSING' })
+    }
+    await refreshShopping()
+    notify('缺少食材已加入购物清单')
+  } catch (exception) { notify(exception.message || '缺料保存失败') }
+}
 
 let mealEstimateTimer
 let mealEstimateVersion = 0
@@ -315,45 +397,68 @@ function openShoppingEditor(item = null) {
   Object.assign(shopDraft, item ? { ...item } : { id: null, name: '', group: '其他', amount: '1 份', note: '手动添加', status: 'pending' })
   showShoppingEditor.value = true
 }
+function parseShoppingAmount(value) {
+  const text = String(value || '')
+  const match = text.match(/[\d.]+/)
+  const unitText = text.replace(/[\d.\s]/g, '')
+  return { quantity: match ? Number(match[0]) : null, unit: apiUnit(unitText || '个') }
+}
 async function saveShoppingItem() {
   if (!shopDraft.name.trim()) return notify('请填写采购项目名称')
-  const payload = { ...shopDraft, name: shopDraft.name.trim() }
   try {
-    const saved = await api.updateShoppingItem(payload)
-    const existing = shopping.find(item => item.id === shopDraft.id)
-    const target = existing || { ...saved, id: Date.now() }
-    if (existing) Object.assign(existing, saved)
-    else shopping.unshift(target)
-    showShoppingEditor.value = false
-    if (payload.status === 'stored') {
-      target.status = existing?.status === 'purchased' ? 'purchased' : 'pending'
-      startPurchase(target)
-      return
+    const parsed = parseShoppingAmount(shopDraft.amount)
+    const payload = { name: shopDraft.name.trim(), category: apiCategory(shopDraft.group), quantity: parsed.quantity, unit: parsed.unit, note: shopDraft.note }
+    const listId = await ensureShoppingList()
+    if (shopDraft.id) {
+      const updatePayload = shopDraft.status === 'stored' ? payload : { ...payload, status: String(shopDraft.status || 'pending').toUpperCase() }
+      await api.updateShoppingItem(shopDraft.id, updatePayload)
+    } else {
+      const created = await api.createShoppingItem(listId, { ...payload, sourceType: 'MANUAL' })
+      if (shopDraft.status === 'purchased') await api.updateShoppingItem(created.id, { status: 'PURCHASED' })
     }
-    notify(existing ? '采购项目已更新' : '采购项目已添加')
-  } catch { notify('采购项目保存失败，请稍后重试') }
+    await refreshShopping()
+    showShoppingEditor.value = false
+    notify(shopDraft.id ? '采购项目已更新' : '采购项目已添加')
+    return
+  } catch (exception) {
+    notify(exception.message || '采购项目保存失败，请稍后重试')
+    return
+  }
 }
-function updateShoppingStatus(item, status) { if (status === 'stored' && item.status !== 'stored') return startPurchase(item); item.status = status; notify(`${item.name} 已标记为${statusLabel(status)}`) }
-function startPurchase(item) { selectedShopItem.value = item; Object.assign(purchaseDraft, { amount: item.amount.match(/[\d.]+/)?.[0] || '', unit: item.amount.includes('个') ? '个' : item.amount.includes('瓶') ? '瓶' : item.amount.includes('袋') ? '袋' : '克', zoneId: 1, zone: zoneNameForId(1), shelf: '7' }); showPurchase.value = true }
-function confirmPurchase() {
+async function updateShoppingStatus(item, status) {
+  if (status === 'stored' && item.status !== 'stored') return startPurchase(item)
+  try { await api.updateShoppingItem(item.id, { status: String(status).toUpperCase() }); await refreshShopping(); notify(`${item.name} 已标记为${statusLabel(status)}`) }
+  catch (exception) { notify(exception.message || '采购状态保存失败') }
+}
+function startPurchase(item) { selectedShopItem.value = item; const parsed = parseShoppingAmount(item.amount); Object.assign(purchaseDraft, { amount: parsed.quantity || '', unit: displayUnit(parsed.unit), zoneId: zones.value[0]?.id || null, zone: zoneNameForId(zones.value[0]?.id), shelf: '7' }); showPurchase.value = true }
+async function confirmPurchase() {
   const item = selectedShopItem.value
   if (!item) return
-  const zoneId = normalizeZoneId(purchaseDraft.zoneId, 1)
-  foods.unshift({ id: Date.now(), name: item.name, icon: foodIcon(item.group === '调味品' ? '调味品' : '蔬菜', item.name), category: item.group === '调味品' ? '调味品' : '蔬菜', zoneId, zone: zoneNameForId(zoneId), amount: Number(purchaseDraft.amount) || 1, unit: purchaseDraft.unit, calories: 50, days: Number(purchaseDraft.shelf), status: statusFor(purchaseDraft.shelf), percent: 92, received: '2026-08-14', reminder: dateAfter(purchaseDraft.shelf), source: '按参考温湿度估算' })
-  item.status = 'stored'
-  histories['采购记录'].unshift({ id: Date.now(), title: item.name, meta: '今天 · 已购买并入库', note: `${purchaseDraft.amount} ${purchaseDraft.unit}` })
-  showPurchase.value = false
-  notify(`${item.name} 已入库`)
+  try {
+    await api.storeShoppingItem(item.id, { fridgeId: session.fridge?.id, zoneId: normalizeZoneId(purchaseDraft.zoneId, null), quantity: Number(purchaseDraft.amount), unit: apiUnit(purchaseDraft.unit), shelfLifeDays: Number(purchaseDraft.shelf || 0) || null })
+    await Promise.all([refreshInventory(), refreshShopping()])
+    showPurchase.value = false
+    notify(`${item.name} 已入库`)
+  } catch (exception) { notify(exception.message || '采购入库失败，请重试') }
 }
 function toggleRestock(id) { const index = selectedRestockIds.value.indexOf(id); index >= 0 ? selectedRestockIds.value.splice(index, 1) : selectedRestockIds.value.push(id) }
-function addSelectedRestock() {
+async function addSelectedRestock() {
   const selected = restockCandidates.filter(item => selectedRestockIds.value.includes(item.id))
   if (!selected.length) return notify('请勾选要加入的补货项')
-  selected.forEach(item => { if (!shopping.some(shopItem => shopItem.name === item.name)) shopping.push({ id: Date.now() + shopping.length, name: item.name, note: item.note, amount: item.amount, status: 'pending', group: item.group }) })
-  selectedRestockIds.value = []
-  notify(`已加入 ${selected.length} 项补货建议`)
+  try {
+    const listId = await ensureShoppingList()
+    for (const item of selected) {
+      if (!shopping.some(shopItem => shopItem.name === item.name)) {
+        const parsed = parseShoppingAmount(item.amount)
+        await api.createShoppingItem(listId, { name: item.name, category: apiCategory(item.group), quantity: parsed.quantity, unit: parsed.unit, note: item.note, sourceType: 'LOW_STOCK' })
+      }
+    }
+    await refreshShopping()
+    selectedRestockIds.value = []
+    notify(`已加入 ${selected.length} 项补货建议`)
+  } catch (exception) { notify(exception.message || '补货项保存失败') }
 }
-function removeShoppingItem(item) { const index = shopping.indexOf(item); if (index >= 0) shopping.splice(index, 1); notify('采购项目已删除') }
+async function removeShoppingItem(item) { try { await api.deleteShoppingItem(item.id); await refreshShopping(); notify('采购项目已删除') } catch (exception) { notify(exception.message || '采购项目删除失败') } }
 function removePurchaseHistory(item) { const index = histories['采购记录'].indexOf(item); if (index >= 0) histories['采购记录'].splice(index, 1); notify('入库记录已删除') }
 function exportShopping() { const text = `鲜知购物清单\n${shopping.filter(item => item.status !== 'stored').map(item => `- ${item.group}｜${item.name} ${item.amount}（${statusLabel(item.status)}）`).join('\n')}`; const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = '鲜知购物清单.txt'; link.click(); URL.revokeObjectURL(url); notify('购物清单已导出') }
 
@@ -423,6 +528,7 @@ function applyFridgeSummary(fridge) {
       ...Array.from({ length: source.humiditySensorCount || 0 }, (_, slot) => ({ id: `${source.id}-H-${slot + 1}`, name: `湿度槽位 ${slot + 1}`, type: 'humidity', value: humidity, unit: '%', update: '待绑定' })),
     ]
     Object.assign(target, {
+      id: source.id,
       apiId: source.id,
       kind: String(source.kind).toLowerCase(),
       enabled: true,
@@ -437,6 +543,8 @@ function applyFridgeSummary(fridge) {
       sensors: sensorSlots,
     })
   })
+  if (!zoneById(newFood.zoneId)) newFood.zoneId = fridge.zones[0]?.id || null
+  if (!zoneById(purchaseDraft.zoneId)) purchaseDraft.zoneId = fridge.zones[0]?.id || null
   zoneCount.value = fridge.zones.length
   setZoneCount(fridge.zones.length, true)
 }
@@ -460,6 +568,7 @@ async function loadFridgeSummary() {
       })
       unit.value = session.user.temperatureUnit || 'C'
     }
+    await Promise.all([refreshInventory(), refreshShopping()])
   } catch { notify('冰箱配置同步失败，请刷新重试') }
 }
 
@@ -563,11 +672,11 @@ async function sendAssistantMessage(preset = '') {
       </div>
     </main>
 
-    <div v-if="showAdd" class="modal-backdrop" @click.self="showAdd = false"><form class="modal" @submit.prevent="addFood"><div class="modal-head"><div><p class="eyebrow">库存录入</p><h2>添加食材</h2></div><button type="button" @click="showAdd = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="newFood.name" context="ingredient" placeholder="例如：鸡胸肉" aria-label="食材名称" /></label><label>分类<select v-model="newFood.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>存放位置<select v-model.number="newFood.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>数量<input v-model="newFood.amount" type="number" placeholder="可留空" /></label><label>单位<select v-model="newFood.unit"><option>克</option><option>千克</option><option>个</option><option>盒</option><option>瓶</option><option>毫升</option></select></label><label>入库日期<input v-model="newFood.date" type="date" /></label><label>参考保质期<div class="input-suffix"><input v-model="newFood.shelf" type="number" /><span>天</span></div></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showAdd = false">取消</button><button class="primary-btn">放入冰箱</button></div></form></div>
-    <div v-if="showFoodEditor && selectedFood" class="modal-backdrop" @click.self="showFoodEditor = false"><form class="modal compact-modal" @submit.prevent="saveFood"><div class="modal-head"><div><p class="eyebrow">库存编辑</p><h2>{{ foodDraft.name }}</h2></div><button type="button" @click="showFoodEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="foodDraft.name" context="ingredient" aria-label="食材名称" /></label><label>分类<select v-model="foodDraft.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>数量<input v-model="foodDraft.amount" type="number" min="0" /></label><label>单位<input v-model="foodDraft.unit" /></label><label>存放位置<select v-model.number="foodDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="modal-actions"><button type="button" class="danger-btn" @click="deleteFood(selectedFood)">删除食材</button><button class="primary-btn">保存更改</button></div></form></div>
+    <div v-if="showAdd" class="modal-backdrop" @click.self="showAdd = false"><form class="modal" @submit.prevent="addFood"><div class="modal-head"><div><p class="eyebrow">库存录入</p><h2>添加食材</h2></div><button type="button" @click="showAdd = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="newFood.name" context="ingredient" placeholder="例如：鸡胸肉" aria-label="食材名称" /></label><label>分类<select v-model="newFood.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>存放位置<select v-model="newFood.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>数量<input v-model="newFood.amount" type="number" placeholder="可留空" /></label><label>单位<select v-model="newFood.unit"><option>克</option><option>千克</option><option>个</option><option>盒</option><option>瓶</option><option>毫升</option></select></label><label>入库日期<input v-model="newFood.date" type="date" /></label><label>参考保质期<div class="input-suffix"><input v-model="newFood.shelf" type="number" /><span>天</span></div></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showAdd = false">取消</button><button class="primary-btn">放入冰箱</button></div></form></div>
+    <div v-if="showFoodEditor && selectedFood" class="modal-backdrop" @click.self="showFoodEditor = false"><form class="modal compact-modal" @submit.prevent="saveFood"><div class="modal-head"><div><p class="eyebrow">库存编辑</p><h2>{{ foodDraft.name }}</h2></div><button type="button" @click="showFoodEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="foodDraft.name" context="ingredient" aria-label="食材名称" /></label><label>分类<select v-model="foodDraft.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>数量<input v-model="foodDraft.amount" type="number" min="0" /></label><label>单位<input v-model="foodDraft.unit" /></label><label>存放位置<select v-model="foodDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="modal-actions"><button type="button" class="danger-btn" @click="deleteFood(selectedFood)">删除食材</button><button class="primary-btn">保存更改</button></div></form></div>
     <div v-if="showMealEditor" class="modal-backdrop" @click.self="showMealEditor = false"><form class="modal compact-modal meal-modal" @submit.prevent="recordMeal"><div class="modal-head"><div><p class="eyebrow">饮食记录</p><h2>记录一餐</h2></div><button type="button" @click="showMealEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">菜品名称<NameSuggestionInput v-model="mealDraft.name" context="dish" placeholder="例如：鸡胸肉豆腐煲" aria-label="菜品名称" /></label><label>餐次<select v-model="mealDraft.meal"><option>早餐</option><option>午餐</option><option>晚餐</option><option>加餐</option></select></label><label>数量 / 重量<input v-model="mealDraft.amount" placeholder="可选" /></label><label>单位<select v-model="mealDraft.unit"><option>克</option><option>份</option><option>个</option></select></label></div><div class="meal-estimate" :class="{ loading: isEstimatingMeal, error: mealEstimateError }"><span v-html="icon('spark', 20)"></span><div v-if="isEstimatingMeal"><b>AI 正在估算热量</b><small>根据菜品名称和份量计算中</small></div><div v-else-if="mealEstimate"><b>AI 估算 {{ mealEstimate.calories }} 千卡</b><small>{{ mealEstimate.source }} · 蛋白质约 {{ mealEstimate.protein }} 克</small></div><div v-else-if="mealEstimateError"><b>{{ mealEstimateError }}</b><button type="button" class="text-btn" @click="estimateMealNutrition">重新估算</button></div><div v-else><b>输入菜品后由 AI 自动估算热量</b><small>热量不能手动修改</small></div></div><div class="modal-actions lowered-actions"><button type="button" class="secondary-btn" @click="showMealEditor = false">取消</button><button class="primary-btn" :disabled="!mealEstimate || isEstimatingMeal" >记录饮食</button></div></form></div>
-    <div v-if="showShoppingEditor" class="modal-backdrop" @click.self="showShoppingEditor = false"><form class="modal compact-modal" @submit.prevent="saveShoppingItem"><div class="modal-head"><div><p class="eyebrow">采购清单</p><h2>{{ shopDraft.id ? '编辑项目' : '添加项目' }}</h2></div><button type="button" @click="showShoppingEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">项目名称<NameSuggestionInput v-model="shopDraft.name" context="ingredient" placeholder="例如：燕麦片" aria-label="采购项目名称" /></label><label>分类<select v-model="shopDraft.group"><option>蔬果</option><option>主食</option><option>调味品</option><option>菜谱缺料</option><option>其他</option></select></label><label>数量 / 单位<input v-model="shopDraft.amount" placeholder="例如：1 袋" /></label><label class="wide">备注<input v-model="shopDraft.note" placeholder="例如：低于常用库存" /></label><label>采购状态<select v-model="shopDraft.status"><option value="pending">待购买</option><option value="purchased">已购买</option><option value="stored">已入库</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showShoppingEditor = false">取消</button><button class="primary-btn">保存项目</button></div></form></div>
-    <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model.number="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>参考保质期<input v-model="purchaseDraft.shelf" type="number" /></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
+    <div v-if="showShoppingEditor" class="modal-backdrop" @click.self="showShoppingEditor = false"><form class="modal compact-modal" @submit.prevent="saveShoppingItem"><div class="modal-head"><div><p class="eyebrow">采购清单</p><h2>{{ shopDraft.id ? '编辑项目' : '添加项目' }}</h2></div><button type="button" @click="showShoppingEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">项目名称<NameSuggestionInput v-model="shopDraft.name" context="ingredient" placeholder="例如：燕麦片" aria-label="采购项目名称" /></label><label>分类<select v-model="shopDraft.group"><option>蔬果</option><option>主食</option><option>调味品</option><option>菜谱缺料</option><option>其他</option></select></label><label>数量 / 单位<input v-model="shopDraft.amount" placeholder="例如：1 袋" /></label><label class="wide">备注<input v-model="shopDraft.note" placeholder="例如：低于常用库存" /></label><label>采购状态<select v-model="shopDraft.status" :disabled="shopDraft.status === 'stored'"><option value="pending">待购买</option><option value="purchased">已购买</option><option v-if="shopDraft.status === 'stored'" value="stored">已入库</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showShoppingEditor = false">取消</button><button class="primary-btn">保存项目</button></div></form></div>
+    <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>参考保质期<input v-model="purchaseDraft.shelf" type="number" /></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
     <div v-if="showSensorEditor && sensorZone" class="modal-backdrop" @click.self="showSensorEditor = false"><form class="modal compact-modal sensor-modal" @submit.prevent="saveSensor"><div class="modal-head"><div><p class="eyebrow">{{ sensorZone.name }}</p><h2>添加传感器</h2></div><button type="button" @click="showSensorEditor = false"><span v-html="icon('close')"></span></button></div><label>传感器名称<input v-model="sensorDraft.name" placeholder="例如：左侧上层温度探头" autofocus /></label><fieldset class="sensor-type-choice"><legend>传感器类型</legend><label><input v-model="sensorDraft.type" value="temperature" type="radio" /> 温度传感器</label><label><input v-model="sensorDraft.type" value="humidity" type="radio" /> 湿度传感器</label></fieldset><p class="sensor-form-note">当前读数将由设备同步，添加时不能手动填写温度或湿度。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showSensorEditor = false">取消</button><button class="primary-btn">添加传感器</button></div></form></div>
     <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">AI 菜谱生成</p><h2>选择库存食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择这次想优先使用的食材和调味品，AI 会结合饮食偏好生成 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于生成菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 生成中' : `使用已选食材生成 (${selectedInventoryFoods.length})` }}</button></div></form></div>
     <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 菜谱生成</p><h2>按菜名生成</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜名<NameSuggestionInput v-model="recipeNameDraft" context="dish" placeholder="例如：番茄虾仁意面" aria-label="菜名" /></label><p class="recipe-generator-note">AI 会结合菜名、当前库存和饮食偏好生成 3 个可选择的完整方案。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 生成中' : '生成 3 张菜谱' }}</button></div></form></div>

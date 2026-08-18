@@ -143,13 +143,151 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/FridgeSummary' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
+  /inventory/items:
+    get:
+      operationId: listInventoryItems
+      parameters:
+        - { in: query, name: fridgeId, schema: { type: string, format: uuid } }
+        - { in: query, name: zoneId, schema: { type: string, format: uuid } }
+        - { in: query, name: category, schema: { $ref: '#/components/schemas/FoodCategory' } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: query, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+    post:
+      operationId: createInventoryItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateItemRequest' } } } }
+      responses:
+        '200': { $ref: '#/components/responses/GenericSuccess' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '409': { $ref: '#/components/responses/ConflictError' }
+  /inventory/items/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateInventoryItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateItemRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+    delete:
+      operationId: deleteInventoryItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /inventory/items/{id}/batches:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: createInventoryBatch
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BatchRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /inventory/batches/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateInventoryBatch
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBatchRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /inventory/batches/{id}/transactions:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: transactInventoryBatch
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TransactionRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /expiry:
+    get:
+      operationId: listExpiry
+      parameters:
+        - { in: query, name: fridgeId, schema: { type: string, format: uuid } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: days, schema: { type: integer, minimum: 0 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /inventory/batches/{id}/assessments:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listBatchAssessments
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /catalog/suggestions:
+    get:
+      operationId: catalogSuggestions
+      parameters:
+        - { in: query, name: query, schema: { type: string } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 20 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /catalog/weight-estimates:
+    get:
+      operationId: catalogWeightEstimates
+      parameters: [{ in: query, name: catalogId, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /shopping-lists:
+    get:
+      operationId: listShoppingLists
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+    post:
+      operationId: createShoppingList
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateListRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /shopping-lists/{id}/items:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: createShoppingItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateShoppingItemRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /shopping-items/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateShoppingItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateShoppingItemRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+    delete:
+      operationId: deleteShoppingItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' } }
+  /shopping-items/{id}/store:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: storeShoppingItem
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/StoreRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '401': { $ref: '#/components/responses/UnauthorizedError' }, '409': { $ref: '#/components/responses/ConflictError' } }
 components:
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    ResourceId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
   responses:
+    GenericSuccess:
+      description: 成功响应
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Envelope' }
+    EmptySuccess:
+      description: 成功响应
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/EmptyEnvelope' }
+    UnprocessableError:
+      description: 单位无法转换或业务规则无法执行
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     SessionResponse:
       description: 已认证会话。响应同时设置 HttpOnly 刷新 Cookie。
       headers:
@@ -350,3 +488,85 @@ components:
         - type: object
           properties:
             data: { $ref: '#/components/schemas/OnboardingStatus' }
+    FoodCategory:
+      type: string
+      enum: [VEGETABLE, FRUIT, MEAT_EGG, SEAFOOD, DAIRY, BEAN, SNACK, BEVERAGE, CONDIMENT, OTHER]
+    CreateItemRequest:
+      type: object
+      required: [fridgeId, name, defaultUnit, batches]
+      properties:
+        fridgeId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        category: { $ref: '#/components/schemas/FoodCategory' }
+        lowStockQuantity: { type: number, minimum: 0 }
+        defaultUnit: { type: string, maxLength: 24 }
+        batches: { type: array, minItems: 1, items: { $ref: '#/components/schemas/BatchRequest' } }
+    BatchRequest:
+      type: object
+      required: [quantity, unit]
+      properties:
+        zoneId: { type: string, format: uuid, nullable: true }
+        storedAt: { type: string, format: date-time }
+        openedAt: { type: string, format: date-time, nullable: true }
+        packageExpiresAt: { type: string, format: date-time, nullable: true }
+        shelfLifeDays: { type: integer, minimum: 0 }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, maxLength: 24 }
+        remindAt: { type: string, format: date-time, nullable: true }
+    UpdateItemRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        category: { $ref: '#/components/schemas/FoodCategory' }
+        lowStockQuantity: { type: number, minimum: 0 }
+        defaultUnit: { type: string, maxLength: 24 }
+    UpdateBatchRequest:
+      type: object
+      properties:
+        zoneId: { type: string, format: uuid, nullable: true }
+        openedAt: { type: string, format: date-time, nullable: true }
+        packageExpiresAt: { type: string, format: date-time, nullable: true }
+        shelfLifeDays: { type: integer, minimum: 0 }
+        remindAt: { type: string, format: date-time, nullable: true }
+    TransactionRequest:
+      type: object
+      required: [type, quantity]
+      properties:
+        type: { type: string, enum: [ADJUST, CONSUME, EXPIRED, DISCARD] }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, maxLength: 24 }
+        reason: { type: string, maxLength: 255 }
+    CreateListRequest:
+      type: object
+      required: [name]
+      properties:
+        fridgeId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+    CreateShoppingItemRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        category: { type: string, maxLength: 24 }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, maxLength: 24 }
+        note: { type: string, maxLength: 255 }
+        sourceType: { type: string, maxLength: 32 }
+    UpdateShoppingItemRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        category: { type: string, maxLength: 24 }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, maxLength: 24 }
+        note: { type: string, maxLength: 255 }
+        status: { type: string, enum: [PENDING, PURCHASED, STORED] }
+    StoreRequest:
+      type: object
+      properties:
+        fridgeId: { type: string, format: uuid }
+        zoneId: { type: string, format: uuid, nullable: true }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, maxLength: 24 }
+        storedAt: { type: string, format: date-time }
+        shelfLifeDays: { type: integer, minimum: 0 }

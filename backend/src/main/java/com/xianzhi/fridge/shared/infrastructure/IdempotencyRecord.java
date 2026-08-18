@@ -21,13 +21,26 @@ public class IdempotencyRecord {
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "response_body", nullable = false, columnDefinition = "json") private String responseBody;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "expires_at", nullable = false) private Instant expiresAt;
+    @Column(name = "http_method", length = 10) private String httpMethod;
+    @Column(name = "request_path", length = 255) private String requestPath;
+    @Column(name = "status_code", nullable = false) private int statusCode = 200;
 
     protected IdempotencyRecord() { }
     public IdempotencyRecord(UUID id, UUID userId, String key, String requestHash, String responseBody, Instant expiresAt) {
         this.id = id; this.userId = userId; this.idempotencyKey = key; this.requestHash = requestHash;
         this.responseBody = responseBody; this.expiresAt = expiresAt;
     }
+    public IdempotencyRecord(UUID id, UUID userId, String key, String requestHash, String responseBody,
+                             Instant expiresAt, String httpMethod, String requestPath, int statusCode) {
+        this(id, userId, key, requestHash, responseBody, expiresAt);
+        this.httpMethod = httpMethod;
+        this.requestPath = requestPath;
+        this.statusCode = statusCode;
+    }
     @PrePersist void onCreate() { createdAt = Instant.now(); }
     public String getRequestHash() { return requestHash; }
     public String getResponseBody() { return responseBody; }
+    public String getHttpMethod() { return httpMethod; }
+    public String getRequestPath() { return requestPath; }
+    public int getStatusCode() { return statusCode; }
 }

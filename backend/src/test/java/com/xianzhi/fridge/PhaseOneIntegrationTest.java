@@ -2,6 +2,7 @@ package com.xianzhi.fridge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,12 +11,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -53,6 +60,7 @@ class PhaseOneIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired JdbcTemplate jdbc;
 
     @Test
     void onboardingIsIdempotentAndDataIsIsolatedByUser() throws Exception {
@@ -157,6 +165,193 @@ class PhaseOneIntegrationTest {
                 .andExpect(jsonPath("$.data.fields.username").exists());
     }
 
+    @Test
+    void inventoryWritesAreIdempotentIsolatedAndSoftDeleteKeepsHistory() throws Exception {
+        Session owner = register("inventory-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(owner);
+        String key = UUID.randomUUID().toString();
+        String createBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "custom-" + UUID.randomUUID(), "category", "OTHER",
+                "defaultUnit", "g", "batches", List.of(Map.of(
+                        "zoneId", fridge.firstZoneId(), "storedAt", "2026-08-18T00:00:00Z",
+                        "packageExpiresAt", "2030-08-18T00:00:00Z", "shelfLifeDays", 7,
+                        "quantity", 5, "unit", "g"))));
+
+        MvcResult created = mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("PACKAGE_EXPIRY"))
+                .andReturn();
+        JsonNode createdData = data(created);
+        String itemId = createdData.path("id").asText();
+        String batchId = createdData.path("batches").path(0).path("id").asText();
+
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(itemId));
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody.replace("\"quantity\":5", "\"quantity\":6")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
+
+        mvc.perform(patch("/api/v1/inventory/batches/{id}", batchId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"zoneId\":\"" + fridge.secondZoneId() + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.packageExpiresAt").value("2030-08-18T00:00:00Z"));
+        mvc.perform(patch("/api/v1/inventory/batches/{id}", batchId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"packageExpiresAt\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.packageExpiresAt").doesNotExist())
+                .andExpect(jsonPath("$.data.assessment.estimationSource").value("USER_SHELF_LIFE"));
+
+        Session intruder = register("inventory-other-" + UUID.randomUUID() + "@example.com");
+        mvc.perform(get("/api/v1/inventory/items").header("Authorization", bearer(intruder)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+        mvc.perform(post("/api/v1/inventory/batches/{id}/transactions", batchId)
+                        .header("Authorization", bearer(intruder)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"CONSUME\",\"quantity\":1,\"unit\":\"g\"}"))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/v1/inventory/items/{id}", itemId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVENTORY_ITEM_HAS_ACTIVE_BATCHES"));
+        mvc.perform(post("/api/v1/inventory/batches/{id}/transactions", batchId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"ADJUST\",\"quantity\":0,\"unit\":\"g\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/inventory/items/{id}", itemId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/inventory/items").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+        mvc.perform(get("/api/v1/inventory/batches/{id}/assessments", batchId)
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(4));
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inventory_transaction WHERE batch_id = UUID_TO_BIN(?)",
+                Integer.class, batchId)).isEqualTo(2);
+    }
+
+    @Test
+    void expiryUsesDocumentedPriorityAndUnknownForUncataloguedFood() throws Exception {
+        Session account = register("expiry-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(account);
+        String knownBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "\u9e21\u80f8\u8089", "defaultUnit", "g",
+                "batches", List.of(Map.of("zoneId", fridge.firstZoneId(), "quantity", 300, "unit", "g"))));
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(knownBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("REFERENCE_TARGET"))
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimatedExpiryAt").exists());
+
+        String customBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "uncatalogued-" + UUID.randomUUID(), "category", "VEGETABLE",
+                "defaultUnit", "g", "batches", List.of(Map.of(
+                        "zoneId", fridge.firstZoneId(), "quantity", 1, "unit", "g"))));
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(customBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.batches[0].assessment.safetyStatus").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimatedExpiryAt").doesNotExist());
+
+        MvcResult suggestion = mvc.perform(get("/api/v1/catalog/suggestions")
+                        .header("Authorization", bearer(account)).param("query", "\u9e21\u86cb"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].name").value("\u9e21\u86cb"))
+                .andReturn();
+        String catalogId = data(suggestion).path(0).path("id").asText();
+        mvc.perform(get("/api/v1/catalog/weight-estimates")
+                        .header("Authorization", bearer(account)).param("catalogId", catalogId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].referenceGrams").value(50.0));
+    }
+
+    @Test
+    void concurrentConsumptionAllowsOnlyOneRequest() throws Exception {
+        Session account = register("concurrency-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(account);
+        String body = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "concurrent-" + UUID.randomUUID(), "category", "OTHER",
+                "defaultUnit", "g", "batches", List.of(Map.of("quantity", 5, "unit", "g"))));
+        MvcResult created = mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn();
+        String batchId = data(created).path("batches").path(0).path("id").asText();
+        Callable<MvcResult> consume = () -> mvc.perform(post("/api/v1/inventory/batches/{id}/transactions", batchId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"CONSUME\",\"quantity\":4,\"unit\":\"g\"}"))
+                .andReturn();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            List<Future<MvcResult>> futures = executor.invokeAll(List.of(consume, consume));
+            assertThat(futures).extracting(future -> future.get().getResponse().getStatus())
+                    .containsExactlyInAnyOrder(200, 409);
+        }
+        mvc.perform(get("/api/v1/inventory/items").header("Authorization", bearer(account)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].batches[0].remainingQuantity").value(1.0));
+    }
+
+    @Test
+    void shoppingStoreIsAtomicReplayableAndCannotBeBypassedByPatch() throws Exception {
+        Session account = register("shopping-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(account);
+        MvcResult listResult = mvc.perform(post("/api/v1/shopping-lists")
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fridgeId\":\"" + fridge.id() + "\",\"name\":\"Primary list\"}"))
+                .andExpect(status().isOk()).andReturn();
+        String listId = data(listResult).path("id").asText();
+        mvc.perform(post("/api/v1/shopping-lists/{id}/items", listId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"invalid pair\",\"quantity\":1}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        String itemId = createShoppingItem(account, listId, "Store me");
+        mvc.perform(patch("/api/v1/shopping-items/{id}", itemId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"STORED\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SHOPPING_ITEM_STORE_REQUIRED"));
+
+        String storeKey = UUID.randomUUID().toString();
+        String storeBody = "{\"fridgeId\":\"" + fridge.id() + "\",\"zoneId\":\"" + fridge.firstZoneId()
+                + "\",\"quantity\":2,\"unit\":\"box\",\"shelfLifeDays\":7}";
+        mvc.perform(post("/api/v1/shopping-items/{id}/store", itemId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", storeKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(storeBody))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("STORED"));
+        mvc.perform(post("/api/v1/shopping-items/{id}/store", itemId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", storeKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(storeBody))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("STORED"));
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inventory_item WHERE display_name = 'Store me'", Integer.class)).isEqualTo(1);
+
+        String rollbackItemId = createShoppingItem(account, listId, "Rollback me");
+        mvc.perform(post("/api/v1/shopping-items/{id}/store", rollbackItemId)
+                        .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fridgeId\":\"" + fridge.id() + "\",\"zoneId\":\"" + UUID.randomUUID()
+                                + "\",\"quantity\":1,\"unit\":\"box\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/shopping-lists").header("Authorization", bearer(account)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].items[?(@.id == '" + rollbackItemId + "')].status").value("PENDING"));
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inventory_item WHERE display_name = 'Rollback me'", Integer.class)).isZero();
+    }
+
     private Session register(String email) throws Exception {
         String username = newUsername();
         MvcResult result = mvc.perform(post("/api/v1/auth/register")
@@ -169,6 +364,38 @@ class PhaseOneIntegrationTest {
         JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
         return new Session(body.path("data").path("accessToken").asText(), cookieValue(result), username, email);
     }
+
+    private FridgeFixture initialize(Session session) throws Exception {
+        String body = """
+                {"fridgeName":"Phase two fridge","zones":[
+                  {"kind":"CHILL","name":"Chill","temperatureSensorCount":0,"humiditySensorCount":0},
+                  {"kind":"FRESH","name":"Fresh","temperatureSensorCount":0,"humiditySensorCount":0},
+                  {"kind":"FREEZE","name":"Freeze","temperatureSensorCount":0,"humiditySensorCount":0}
+                ]}
+                """;
+        MvcResult result = mvc.perform(post("/api/v1/onboarding/initialize")
+                        .header("Authorization", bearer(session)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode value = data(result);
+        return new FridgeFixture(value.path("id").asText(), value.path("zones").path(0).path("id").asText(),
+                value.path("zones").path(1).path("id").asText());
+    }
+
+    private String createShoppingItem(Session session, String listId, String name) throws Exception {
+        MvcResult result = mvc.perform(post("/api/v1/shopping-lists/{id}/items", listId)
+                        .header("Authorization", bearer(session)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"category\":\"DAIRY\",\"quantity\":2,\"unit\":\"box\"}"))
+                .andExpect(status().isOk()).andReturn();
+        return data(result).path("id").asText();
+    }
+
+    private JsonNode data(MvcResult result) throws Exception {
+        return objectMapper.readTree(result.getResponse().getContentAsString()).path("data");
+    }
+
+    private static String bearer(Session session) { return "Bearer " + session.accessToken(); }
 
     private static String newUsername() {
         return "u_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
@@ -185,4 +412,5 @@ class PhaseOneIntegrationTest {
     }
 
     private record Session(String accessToken, String refreshToken, String username, String email) { }
+    private record FridgeFixture(String id, String firstZoneId, String secondZoneId) { }
 }

@@ -155,6 +155,20 @@ async function request(path, options = {}) {
   return payload?.data
 }
 
+function idempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `idempotency-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function queryString(params) {
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, String(value))
+  })
+  const value = search.toString()
+  return value ? `?${value}` : ''
+}
+
 function mockBatch({ inventory = [], prompt = '', count = 3 }) {
   const normalizedPrompt = String(prompt || '').toLowerCase()
   const preferred = recipeCatalog.filter(recipe => normalizedPrompt && (recipe.name.toLowerCase().includes(normalizedPrompt) || recipe.ingredients.some(item => item.name.toLowerCase().includes(normalizedPrompt))))
@@ -199,13 +213,42 @@ export const api = {
   }),
   getFridges: () => request('/api/v1/fridges'),
   getDashboard: () => wait({ updatedAt: new Date().toISOString() }),
-  addFood: food => wait({ ...food, id: Date.now() }),
-  updateFood: food => wait(food),
-  consumeFood: (id, amount) => wait({ id, amount }),
+  listInventoryItems: filters => request(`/api/v1/inventory/items${queryString(filters || {})}`),
+  createInventoryItem: payload => request('/api/v1/inventory/items', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  updateInventoryItem: (id, payload) => request(`/api/v1/inventory/items/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  deleteInventoryItem: id => request(`/api/v1/inventory/items/${id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
+  updateInventoryBatch: (id, payload) => request(`/api/v1/inventory/batches/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  transactInventoryBatch: (id, payload) => request(`/api/v1/inventory/batches/${id}/transactions`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  getExpiry: filters => request(`/api/v1/expiry${queryString(filters || {})}`),
+  getShoppingLists: () => request('/api/v1/shopping-lists'),
+  createShoppingList: payload => request('/api/v1/shopping-lists', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  createShoppingItem: (listId, payload) => request(`/api/v1/shopping-lists/${listId}/items`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  updateShoppingItem: (id, payload) => request(`/api/v1/shopping-items/${id}`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
+  deleteShoppingItem: id => request(`/api/v1/shopping-items/${id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey() },
+  }),
+  storeShoppingItem: (id, payload) => request(`/api/v1/shopping-items/${id}/store`, {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify(payload),
+  }),
   updateZone: zone => wait(zone),
   updatePreferences: preferences => wait(preferences),
   toggleFavorite: recipeId => wait({ recipeId }),
-  updateShoppingItem: item => wait(item),
 
   generateRecipeBatch: async requestBody => {
     if (API_BASE_URL && LEGACY_REMOTE_ENABLED) return request('/api/recipes/generate', { method: 'POST', body: JSON.stringify(requestBody) })
@@ -213,6 +256,10 @@ export const api = {
   },
 
   getNameSuggestions: async requestBody => {
+    if (requestBody.context === 'ingredient' && accessToken) {
+      const suggestions = await request(`/api/v1/catalog/suggestions${queryString({ query: requestBody.query || '', limit: requestBody.limit || 6 })}`)
+      return { suggestions: suggestions.map(item => ({ ...item, context: 'ingredient' })) }
+    }
     if (API_BASE_URL && LEGACY_REMOTE_ENABLED) {
       const params = new URLSearchParams({ query: requestBody.query || '', context: requestBody.context || 'ingredient', limit: String(requestBody.limit || 6) })
       return request(`/api/name-suggestions?${params}`)

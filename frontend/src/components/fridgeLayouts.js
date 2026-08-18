@@ -92,3 +92,20 @@ export function getFridgeSpec(count) {
     layouts: getZoneLayout(normalized),
   }
 }
+
+export function bindZonesToFridgeSpec(zones) {
+  const zoneList = Array.isArray(zones) ? zones : []
+  const spec = getFridgeSpec(zoneList.length)
+
+  return {
+    ...spec,
+    layouts: spec.layouts.map((layout, index) => {
+      const zone = zoneList[index]
+      return {
+        ...layout,
+        zoneId: zone?.id ?? null,
+        kind: zone?.kind || layout.kind,
+      }
+    }),
+  }
+}

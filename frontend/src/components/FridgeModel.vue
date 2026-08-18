@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { getFridgeSpec } from './fridgeLayouts'
+import { bindZonesToFridgeSpec } from './fridgeLayouts'
 
 const props = defineProps({
   zones: { type: Array, required: true },
@@ -37,8 +37,8 @@ let minimumCameraZoom = 0.96
 const maximumCameraZoom = 1.08
 let doors = []
 let clickable = []
-let currentSpec = getFridgeSpec(props.zones.length)
-const zoneLayout = computed(() => getFridgeSpec(props.zones.length).layouts)
+let currentSpec = bindZonesToFridgeSpec(props.zones)
+const zoneLayout = computed(() => bindZonesToFridgeSpec(props.zones).layouts)
 const iconByKind = Object.freeze({ chill: '●', fresh: '◆', variable: '▲', freeze: '✦' })
 const iconForKind = kind => iconByKind[kind] || '●'
 
@@ -156,7 +156,7 @@ function drawZoneIcon(context, kind, x, y, size, accent) {
   context.restore()
 }
 
-function labelTexture(zone, kind, compact = false) {
+function labelTexture(zone, kind, compact = false, slotId = null) {
   const labelCanvas = document.createElement('canvas')
   labelCanvas.width = 960
   labelCanvas.height = 420
@@ -216,7 +216,7 @@ function labelTexture(zone, kind, compact = false) {
   context.lineWidth = 11
   const nameWidth = compact ? 580 : 615
   const threeZoneLabel = currentSpec.count === 3
-  const expandedChillLabel = currentSpec.count === 5 && zone.id === 5
+  const expandedChillLabel = currentSpec.count === 5 && slotId === 5
   let nameSize = threeZoneLabel ? 86 : expandedChillLabel ? 82 : compact ? 104 : 114
   do {
     context.font = `900 ${nameSize}px "YouYuan", "幼圆", "Noto Sans SC", sans-serif`
@@ -479,7 +479,7 @@ function addDoor(zone, layout, parent) {
   const labelHeight = labelWidth / (960 / 420)
   const label = new THREE.Mesh(
     new THREE.PlaneGeometry(labelWidth, labelHeight),
-    new THREE.MeshBasicMaterial({ map: labelTexture(zone, layout.kind, compactLabel), transparent: true, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ map: labelTexture(zone, layout.kind, compactLabel, layout.id), transparent: true, depthWrite: false }),
   )
   const stickerAngles = { chill: -0.022, fresh: 0.018, variable: 0.025, freeze: -0.015 }
   label.position.set(labelCenterX, labelY, 0.201)
@@ -570,7 +570,7 @@ function buildFridge() {
   addInternalFrames(spec, fridge, innerEdgeMaterial)
 
   for (const layout of spec.layouts) {
-    const zone = props.zones.find(item => item.id === layout.id)
+    const zone = props.zones.find(item => item.id === layout.zoneId)
     if (!zone) continue
     const resolvedLayout = { ...layout, kind: zone.kind || layout.kind }
     const displayZone = zoneSnapshot(zone)
@@ -625,7 +625,7 @@ function disposeFridge() {
 function rebuildFridge() {
   if (!scene) return
   const activeZoneId = activeZone.value?.id
-  const nextSpec = getFridgeSpec(props.zones.length)
+  const nextSpec = bindZonesToFridgeSpec(props.zones)
   if (nextSpec.count !== currentSpec.count) cameraZoom = 1
   currentSpec = nextSpec
   disposeFridge()
@@ -716,7 +716,7 @@ function onKeyDown(event) {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target?.tagName) || event.target?.isContentEditable) return
   if (event.key === 'Escape' && activeZone.value) closeDoors()
   const number = Number(event.key)
-  if (number >= 1 && number <= props.zones.length) handleZone(number)
+  if (number >= 1 && number <= props.zones.length) handleZone(props.zones[number - 1].id)
 }
 
 function updateCamera() {
@@ -852,14 +852,14 @@ onBeforeUnmount(() => {
       <div class="fridge-zone-controls" :class="`zone-count-${zoneLayout.length}`" aria-label="冰箱门控制">
         <button
           v-for="layout in zoneLayout"
-          :key="layout.id"
+          :key="layout.zoneId ?? layout.id"
           type="button"
-          :class="[`zone-${layout.kind}`, { active: activeZone?.id === layout.id }]"
-          :aria-pressed="activeZone?.id === layout.id"
-          @click="handleZone(layout.id)"
+          :class="[`zone-${layout.kind}`, { active: activeZone?.id === layout.zoneId }]"
+          :aria-pressed="activeZone?.id === layout.zoneId"
+          @click="handleZone(layout.zoneId)"
         >
           <i aria-hidden="true">{{ iconForKind(layout.kind) }}</i>
-          <span>{{ props.zones.find(zone => zone.id === layout.id)?.name }}</span>
+          <span>{{ props.zones.find(zone => zone.id === layout.zoneId)?.name }}</span>
         </button>
       </div>
       <div class="fridge-status-slot" aria-live="polite">

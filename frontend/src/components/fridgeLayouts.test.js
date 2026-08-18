@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MAX_ZONES, MIN_ZONES, clampZoneCount, getFridgeSpec, getZoneLayout } from './fridgeLayouts.js'
+import { bindZonesToFridgeSpec, MAX_ZONES, MIN_ZONES, clampZoneCount, getFridgeSpec, getZoneLayout } from './fridgeLayouts.js'
 
 test('clampZoneCount keeps the supported range and default', () => {
   assert.equal(clampZoneCount(-4), MIN_ZONES)
@@ -66,4 +66,18 @@ test('fridge specs use the tall body outside the legacy four-zone model', () => 
   assert.equal(tall.bodyHeight, 7.15)
   assert.equal(tall.interiorProfile, 'compact')
   assert.equal(tall.layouts.length, 6)
+})
+
+test('fridge geometry slots bind to backend UUID zone IDs without changing their order', () => {
+  const zones = [
+    { id: 'a3dc22c1-bb78-4fe2-831a-227771b15c0f', kind: 'chill' },
+    { id: 'c1aa3125-8b1f-493f-8790-233f611abc84', kind: 'fresh' },
+    { id: '10d5a51f-5030-4351-b5eb-b8a53c3b7e76', kind: 'variable' },
+    { id: '0a060776-49ae-4b06-8c41-ae42d42e1912', kind: 'freeze' },
+  ]
+  const spec = bindZonesToFridgeSpec(zones)
+
+  assert.deepEqual(spec.layouts.map(layout => layout.id), [1, 2, 3, 4])
+  assert.deepEqual(spec.layouts.map(layout => layout.zoneId), zones.map(zone => zone.id))
+  assert.deepEqual(spec.layouts.map(layout => layout.kind), zones.map(zone => zone.kind))
 })
