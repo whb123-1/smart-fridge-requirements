@@ -50,12 +50,9 @@ public class ProductionConfigurationValidator implements ApplicationRunner {
         requireSecret(app.getIdentity().getTombstoneKey(),32,"IDENTITY_TOMBSTONE_KEY",errors);
         if(equal(app.getSecurity().getJwtSigningKey(),app.getIdentity().getTombstoneKey()))errors.add("JWT and tombstone keys must be different");
         if(!app.getSecurity().getAdminUsernames().isEmpty())errors.add("ADMIN_USERNAMES must be empty in prod");
-        if(!telemetry.debugOperators().isEmpty())errors.add("DEBUG_TEST_OPERATOR_USERNAMES must be empty in prod");
         if(telemetry.isEnabled()){
             requireSecret(telemetry.getServicePassword(),20,"MQTT_SERVICE_PASSWORD",errors);
             requireSecret(telemetry.getInternalToken(),32,"MQTT_INTERNAL_TOKEN",errors);
-            String publicBroker=telemetry.getPublicBrokerUrl();
-            if(publicBroker==null||!publicBroker.startsWith("wss://"))errors.add("MQTT_PUBLIC_BROKER_URL must use wss://");
         }
         if(speech.isFakeEnabled()||"fake".equalsIgnoreCase(speech.getProvider()))errors.add("fake speech provider is forbidden in prod");
         if("openai".equalsIgnoreCase(speech.getProvider())){

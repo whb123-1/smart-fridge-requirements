@@ -144,14 +144,14 @@ curl --fail --silent https://$APP_DOMAIN/healthz
 - V001→V013 空库迁移及上一版本原地升级通过。
 - HTTPS/HSTS、Cookie、安全头、同源写保护、Swagger/Debug/Simulator 关闭。
 - 管理员登录、分页筛选、启停、强退、临时密码、删除恢复、审计通过。
-- MQTT-over-WSS QoS 1、Worker、Outbox、已启用 MinIO/OpenAI/Qdrant 适配器通过。
+- 内部 EMQX QoS 1 虚拟探头、Worker、Outbox、已启用 MinIO/OpenAI/Qdrant 适配器通过。
 - 备份和隔离恢复演练通过；Prometheus、Grafana、Loki、Alertmanager 可用。
 - 50 并发核心 API 读取 p95 < 500 ms、写入 p95 < 800 ms、错误率 < 1%；100 个设备 QoS 1 无静默丢失。
 - 观察窗口无已知 P1/P2 缺陷和新的 ERROR 日志。
 
 ### 8.1 本机生产 Profile 验收记录（2026-08-19）
 
-- 内部 CA 的 HTTPS、HSTS/安全头、Secure/HttpOnly/SameSite Cookie、同源写保护、管理员 API、MQTT-over-WSS、Worker 以及 Swagger/Debug 关闭均通过。
+- 内部 CA 的 HTTPS、HSTS/安全头、Secure/HttpOnly/SameSite Cookie、同源写保护、管理员 API、虚拟探头 Worker 以及 Swagger/Debug 关闭均通过。
 - 管理员搜索、启停、即时失效、强退、临时密码、强制改密、升降权、软删除、恢复和审计均通过；测试密码未写入日志或文档。
 - 发布前备份、V013 独立迁移、发布后备份和 `xianzhi_restore_drill` 隔离恢复演练通过；S3 AES256 流式往返通过。
 - 50 VU：读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%。100 设备 MQTT：PUBACK、遥测消息、ACCEPTED 和传感器读数各 100。

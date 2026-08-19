@@ -10,6 +10,9 @@ import com.xianzhi.fridge.fridge.infrastructure.Fridge;
 import com.xianzhi.fridge.fridge.infrastructure.FridgeRepository;
 import com.xianzhi.fridge.fridge.infrastructure.FridgeZone;
 import com.xianzhi.fridge.fridge.infrastructure.FridgeZoneRepository;
+import com.xianzhi.fridge.fridge.infrastructure.Device;
+import com.xianzhi.fridge.fridge.infrastructure.DeviceRepository;
+import com.xianzhi.fridge.fridge.infrastructure.SensorProfileRepository;
 import com.xianzhi.fridge.fridge.infrastructure.SensorSlot;
 import com.xianzhi.fridge.fridge.infrastructure.SensorSlotRepository;
 import com.xianzhi.fridge.identity.infrastructure.AppUser;
@@ -42,6 +45,8 @@ public class OnboardingService {
     private final AppUserRepository users;
     private final FridgeRepository fridges;
     private final FridgeZoneRepository zones;
+    private final DeviceRepository devices;
+    private final SensorProfileRepository profiles;
     private final SensorSlotRepository sensors;
     private final IdempotencyRecordRepository idempotencyRecords;
     private final ObjectMapper objectMapper;
@@ -49,9 +54,10 @@ public class OnboardingService {
     private final Clock clock = Clock.systemUTC();
 
     public OnboardingService(AppUserRepository users, FridgeRepository fridges, FridgeZoneRepository zones,
-                             SensorSlotRepository sensors, IdempotencyRecordRepository idempotencyRecords,
+                             DeviceRepository devices, SensorProfileRepository profiles, SensorSlotRepository sensors,
+                             IdempotencyRecordRepository idempotencyRecords,
                              ObjectMapper objectMapper, AuditService audit) {
-        this.users = users; this.fridges = fridges; this.zones = zones; this.sensors = sensors;
+        this.users = users; this.fridges = fridges; this.zones = zones; this.devices = devices; this.profiles = profiles; this.sensors = sensors;
         this.idempotencyRecords = idempotencyRecords; this.objectMapper = objectMapper; this.audit = audit;
     }
 
@@ -95,6 +101,7 @@ public class OnboardingService {
             addSensorSlots(savedSensors, zone.getId(), SensorMetric.HUMIDITY, zoneRequest.humiditySensorCount());
         }
         sensors.saveAll(savedSensors);
+        provisionVirtualProbes(userId, savedZones, savedSensors);
         user.completeOnboarding(clock.instant());
         OnboardingContracts.FridgeSummary response = toSummary(fridge, savedZones, savedSensors);
         idempotencyRecords.save(new IdempotencyRecord(UuidV7.next(), userId, idempotencyKey, requestHash,
@@ -134,6 +141,25 @@ public class OnboardingService {
         for (int slot = 1; slot <= count; slot++) output.add(new SensorSlot(UuidV7.next(), zoneId, metric, slot));
     }
 
+    private void provisionVirtualProbes(UUID userId, List<FridgeZone> fridgeZones, List<SensorSlot> slots) {
+        Map<UUID, FridgeZone> zonesById = fridgeZones.stream().collect(Collectors.toMap(FridgeZone::getId, zone -> zone));
+        List<Device> virtualProbes = new ArrayList<>();
+        for (SensorSlot slot : slots) {
+            FridgeZone zone = zonesById.get(slot.getZoneId());
+            if (zone == null) throw new IllegalStateException("Sensor zone is missing");
+            var profile = profiles.findFirstByZoneKindAndMetricOrderByProfileVersionDesc(zone.getKind(), slot.getMetric())
+                    .orElseThrow(() -> new IllegalStateException("Sensor profile is missing"));
+            Device device = new Device(UuidV7.next(), userId, zone.getId(),
+                    zone.getName() + (slot.getMetric() == SensorMetric.TEMPERATURE ? "温度" : "湿度") + "模拟探头",
+                    com.xianzhi.fridge.fridge.domain.DeviceType.VIRTUAL);
+            virtualProbes.add(device);
+            slot.bind(device.getId(), profile.getId(), device.getName(),
+                    slot.getMetric().name().toLowerCase(Locale.ROOT) + "-" + slot.getSlotIndex());
+        }
+        devices.saveAll(virtualProbes);
+        sensors.saveAll(slots);
+    }
+
     private OnboardingContracts.FridgeSummary toSummary(Fridge fridge, List<FridgeZone> fridgeZones, List<SensorSlot> allSensors) {
         Map<UUID, EnumMap<SensorMetric, Integer>> counts = new HashMap<>();
         for (SensorSlot sensor : allSensors) {
@@ -144,12 +170,17 @@ public class OnboardingService {
             Map<SensorMetric, Integer> zoneCounts = counts.getOrDefault(zone.getId(), new EnumMap<>(SensorMetric.class));
             int temperature = zoneCounts.getOrDefault(SensorMetric.TEMPERATURE, 0);
             int humidity = zoneCounts.getOrDefault(SensorMetric.HUMIDITY, 0);
+            String bindingStatus = temperature + humidity == 0 ? "NOT_CONNECTED" : allBound(zone.getId(), allSensors) ? "BOUND" : "PENDING_BIND";
             return new OnboardingContracts.ZoneSummary(zone.getId(), zone.getKind(), zone.getName(), zone.isEnabled(),
                     zone.getTargetTemperatureC(), zone.getTargetHumidityPct(), zone.getSafeTemperatureMinC(),
                     zone.getSafeTemperatureMaxC(), zone.getSafeHumidityMinPct(), zone.getSafeHumidityMaxPct(),
-                    temperature, humidity, temperature + humidity == 0 ? "NOT_CONNECTED" : "PENDING_BIND");
+                    temperature, humidity, bindingStatus);
         }).toList();
         return new OnboardingContracts.FridgeSummary(fridge.getId(), fridge.getName(), zoneSummaries);
+    }
+
+    private boolean allBound(UUID zoneId, List<SensorSlot> allSensors) {
+        return allSensors.stream().filter(sensor -> sensor.getZoneId().equals(zoneId)).allMatch(sensor -> "BOUND".equals(sensor.getBindingStatus()));
     }
 
     private static List<OnboardingContracts.ZoneDefault> defaultViews() {

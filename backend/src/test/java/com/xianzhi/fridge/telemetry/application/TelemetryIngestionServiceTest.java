@@ -78,8 +78,7 @@ class TelemetryIngestionServiceTest {
         audit = mock(AuditService.class);
         mapper = JsonMapper.builder().findAndAddModules().build();
 
-        Device device = new Device(deviceId, userId, zoneId, "physical", DeviceType.PHYSICAL,
-                "client", "username", "hash");
+        Device device = new Device(deviceId, userId, zoneId, "virtual", DeviceType.VIRTUAL);
         sensor = new SensorSlot(sensorId, zoneId, SensorMetric.TEMPERATURE, 0);
         sensor.bind(deviceId, profileId, "temperature", "temp-1");
         FridgeZone zone = new FridgeZone(zoneId, fridgeId, ZoneKind.CHILL, "冷藏区", ZoneDefaults.forKind(ZoneKind.CHILL));

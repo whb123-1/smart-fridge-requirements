@@ -169,7 +169,7 @@ public class TelemetryIngestionService {
         return rate.compareTo(profile.getMaxChangePerMinute()) > 0;
     }
     private String normalizedUnit(SensorMetric metric) { return metric == SensorMetric.TEMPERATURE ? "C" : "PERCENT"; }
-    private ReadingSource source(Device device) { return device.getType() == DeviceType.VIRTUAL ? ReadingSource.EXTERNAL_DEBUG : ReadingSource.DEVICE; }
+    private ReadingSource source(Device device) { return device.getType() == DeviceType.VIRTUAL ? ReadingSource.VIRTUAL_SIMULATOR : ReadingSource.DEVICE; }
     private void publish(UUID aggregateId, String eventType, Map<String, Object> payload) {
         try { outbox.save(new OutboxEvent(UuidV7.next(), "Telemetry", aggregateId, eventType, mapper.writeValueAsString(payload))); }
         catch (JsonProcessingException exception) { throw new IllegalStateException("Could not serialize telemetry event", exception); }

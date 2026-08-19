@@ -25,8 +25,7 @@ class OpenApiContractTest {
                 "/inventory/batches/{id}", "/inventory/batches/{id}/transactions", "/expiry",
                 "/inventory/batches/{id}/assessments", "/catalog/suggestions", "/catalog/weight-estimates",
                 "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store",
-                "/zones/{id}", "/zones/{id}/devices", "/zones/{id}/sensors", "/zones/{id}/sensors/initialize",
-                "/devices/{id}", "/devices/{id}/credentials/rotate", "/devices/{id}/sensors",
+                "/zones/{id}", "/zones/{id}/devices", "/zones/{id}/sensors",
                 "/devices/{deviceId}/sensors/{sensorId}", "/zones/{id}/readings", "/fridges/{id}/environment",
                 "/notifications", "/notifications/{id}", "/me/preferences", "/me/notification-preferences",
                 "/inventory/voice-drafts", "/inventory/voice-drafts/{id}", "/inventory/voice-drafts/{id}/confirm",
@@ -40,8 +39,7 @@ class OpenApiContractTest {
                 "/meals/estimate-nutrition", "/meals", "/meals/{id}", "/analytics/consumption", "/analytics/diet",
                 "/assistant/briefing", "/assistant/conversations",
                 "/assistant/conversations/{conversationId}/messages",
-                "/assistant/action-proposals/{id}/confirm", "/assistant/action-proposals/{id}/dismiss",
-                "/debug/telemetry/scenarios", "/debug/telemetry/scenarios/{id}"));
+                "/assistant/action-proposals/{id}/confirm", "/assistant/action-proposals/{id}/dismiss"));
 
         Map<String, Object> components = (Map<String, Object>) root.get("components");
         Map<String, Object> schemas = (Map<String, Object>) components.get("schemas");

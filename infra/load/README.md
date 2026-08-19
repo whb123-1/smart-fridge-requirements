@@ -15,7 +15,7 @@ docker run --rm --network host -i \
 
 目标：读取 p95 < 500 ms、写入 p95 < 800 ms、错误率 < 1%。测试写请求使用预先落库的同一幂等快照，不改变用户业务状态。
 
-MQTT 验收脚本会创建 3 个临时用户，通过正式 API 初始化 100 个传感器槽位、签发 100 组独立设备凭据并逐一绑定；随后经生产 WSS 和正式 ACL 保持 100 个连接，以 QoS 1 并发发布唯一 `messageId`。脚本在 Broker PUBACK 之外，还会从 MySQL 核对 `telemetry_message`、`ACCEPTED` 与 `sensor_reading` 数量。测试结束会软删除临时用户，并确认既有连接不能继续入库、原设备凭据不能重新认证。
+当前演示模式不接入真实硬件，也不提供公网 MQTT/WSS。虚拟探头由 Worker 使用内部服务账号经 EMQX 发布 QoS 1 遥测；端到端验收请运行后端 `TelemetryMqttIntegrationTest`，核对 `telemetry_message`、`ACCEPTED` 和 `sensor_reading`。
 
 ```powershell
 python -m pip install --target .tmp/mqtt-load -r infra/load/requirements.txt
@@ -24,7 +24,7 @@ python infra/load/mqtt-qos1.py
 Remove-Item Env:PYTHONPATH
 ```
 
-脚本只从 `.env.prod` 读取域名和 TLS 模式，从 `secrets/smoke_admin_password` 读取管理员密码；密码、令牌和设备凭据不会写入输出或磁盘。默认且唯一的生产门禁规模为 100 台设备。
+核心 API 的 k6 负载脚本仍可用于 REST 性能门禁；不要使用旧的真实设备 MQTT 负载流程。密码和令牌不会写入输出或磁盘。
 
 ## 最近一次结果
 

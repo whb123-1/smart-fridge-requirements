@@ -8,7 +8,7 @@
 - 独立 `admin` 管理员初始化；管理员可查询、筛选、启停、强退、重置密码、升降角色、删除和恢复用户。
 - 冰箱初始化、库存、保质期、采购、MQTT 遥测、通知、语音草稿、菜谱、饮食分析和助手。
 - S3 兼容对象存储、OpenAI 兼容语音/LLM/Embedding 与 Qdrant；供应商不可用时按配置降级。
-- HTTPS、MQTT-over-WSS、Prometheus/Grafana/Loki/Alertmanager、每日备份和每周恢复演练。
+- HTTPS、内部 MQTT 虚拟探头演示、Prometheus/Grafana/Loki/Alertmanager、每日备份和每周恢复演练。
 
 项目不实现家庭共享、OAuth、邮件或 Web Push；通知只使用站内渠道。
 
@@ -18,7 +18,7 @@ AI 外部调用默认关闭。需要启用 DeepSeek 聊天、OpenAI 语音转写
 
 2026-08-19 的最终门禁结果：后端 63/63、前端 25/25、Playwright 5 passed/3 skipped；V001→V013 空库及 V002→V013 原地升级通过；API/Web/Backup 三张镜像的 OS 与应用二进制均为 0 High/Critical。50 VU 下读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%；100 个 MQTT 设备 QoS 1 的 Broker 确认与四层落库计数均为 100。
 
-本机生产 Profile 已通过内部 CA 的 HTTPS/WSS、管理员全生命周期、Worker、S3、备份和隔离恢复演练。真实公网发布仍必须提供实际域名、ACME 邮箱和生产 Secret；OpenAI/Embedding 等可选供应商只有启用并完成真实调用验收后，才算该适配器生产正常。Windows Docker Desktop 不替代 Linux 主机的 cAdvisor/宿主磁盘指标验收。详见 [项目进展](progress.md) 和 [生产运行手册](docs/production-runbook.md)。
+本机生产 Profile 已通过内部 CA 的 HTTPS、管理员全生命周期、Worker、虚拟探头遥测、S3、备份和隔离恢复演练。真实公网发布仍必须提供实际域名、ACME 邮箱和生产 Secret；OpenAI/Embedding 等可选供应商只有启用并完成真实调用验收后，才算该适配器生产正常。Windows Docker Desktop 不替代 Linux 主机的 cAdvisor/宿主磁盘指标验收。详见 [项目进展](progress.md) 和 [生产运行手册](docs/production-runbook.md)。
 
 ## 开发环境
 
@@ -39,6 +39,16 @@ Set-Location frontend
 npm ci
 npm run dev
 ```
+
+## 更新本机演示版
+
+当页面仍显示旧的“初始化探头”或 MQTT 配置时，在仓库根目录运行：
+
+```powershell
+.\infra\scripts\refresh-demo.ps1
+```
+
+该脚本不会删除 Docker 卷、账号、库存、菜谱或饮食数据。它会应用虚拟探头迁移、重建 API/Worker/Web；探头与旧遥测数据会按演示模式重建。完成后在浏览器按 `Ctrl+F5`，重新打开 `https://localhost`。冰箱初始化完成后，模拟探头会自动创建并绑定，约 5-10 秒显示温湿度。
 
 ## 质量门禁
 

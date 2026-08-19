@@ -53,7 +53,7 @@ test('shopping store uses the atomic store endpoint and idempotency header', asy
   assert.match(calls[0].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
 })
 
-test('environment reads are authenticated and device/notification writes are idempotent', async t => {
+test('environment reads are authenticated and notification writes are idempotent', async t => {
   const calls = []
   const previousFetch = globalThis.fetch
   t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
@@ -61,32 +61,17 @@ test('environment reads are authenticated and device/notification writes are ide
 
   await api.getEnvironment('fridge-id')
   await api.getZoneSensors('zone-id')
-  await api.createDevice('zone-id', { name: '测试设备', type: 'VIRTUAL' })
   await api.updateNotification('notification-id', { read: true })
 
   assert.equal(calls[0].url, '/api/v1/fridges/fridge-id/environment')
   assert.equal(calls[1].url, '/api/v1/zones/zone-id/sensors')
-  assert.equal(calls[2].url, '/api/v1/zones/zone-id/devices')
+  assert.equal(calls[2].url, '/api/v1/notifications/notification-id')
   assert.match(calls[2].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
-  assert.match(calls[3].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
 })
 
-test('sensor initialization uses one caller-owned idempotency key for atomic MQTT provisioning', async t => {
-  const calls = []
-  const previousFetch = globalThis.fetch
-  t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
-  globalThis.fetch = async (url, options) => {
-    calls.push({ url, options })
-    return response({ id: 'device-id', sensors: [{ id: 'sensor-id' }], credential: { topic: 'telemetry' } })
-  }
-
-  const key = '0870a1ec-e68b-4c25-89b0-e677f918b2d1'
-  await api.initializeSensor('zone-id', { slotId: 'slot-id', name: '冷藏温度探头' }, key)
-
-  assert.equal(calls[0].url, '/api/v1/zones/zone-id/sensors/initialize')
-  assert.equal(calls[0].options.method, 'POST')
-  assert.equal(calls[0].options.headers['Idempotency-Key'], key)
-  assert.deepEqual(JSON.parse(calls[0].options.body), { slotId: 'slot-id', name: '冷藏温度探头' })
+test('the browser does not expose a manual sensor provisioning request', () => {
+  assert.equal(typeof api.initializeSensor, 'undefined')
+  assert.equal(typeof api.unbindDeviceSensor, 'undefined')
 })
 
 test('recipe, meal, preference and assistant flows use v1 APIs with idempotent writes', async t => {

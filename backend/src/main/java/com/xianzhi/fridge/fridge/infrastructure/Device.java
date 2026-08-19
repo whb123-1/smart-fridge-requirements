@@ -24,9 +24,6 @@ public class Device {
     @JdbcTypeCode(Types.BINARY) @Column(name = "zone_id", nullable = false) private UUID zoneId;
     @Column(nullable = false, length = 96) private String name;
     @Enumerated(EnumType.STRING) @Column(name = "device_type", nullable = false, length = 24) private DeviceType type;
-    @Column(name = "mqtt_client_id", nullable = false, unique = true, length = 128) private String mqttClientId;
-    @Column(name = "mqtt_username", nullable = false, unique = true, length = 128) private String mqttUsername;
-    @Column(name = "credential_hash", nullable = false, length = 255) private String credentialHash;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 24) private DeviceStatus status;
     @Column(name = "firmware_version", length = 64) private String firmwareVersion;
     @Column(name = "last_seen_at") private Instant lastSeenAt;
@@ -36,10 +33,8 @@ public class Device {
     @Version private long version;
 
     protected Device() { }
-    public Device(UUID id, UUID userId, UUID zoneId, String name, DeviceType type, String mqttClientId,
-                  String mqttUsername, String credentialHash) {
+    public Device(UUID id, UUID userId, UUID zoneId, String name, DeviceType type) {
         this.id = id; this.userId = userId; this.zoneId = zoneId; this.name = name; this.type = type;
-        this.mqttClientId = mqttClientId; this.mqttUsername = mqttUsername; this.credentialHash = credentialHash;
         this.status = DeviceStatus.ACTIVE;
     }
     @PrePersist void onCreate() { createdAt = updatedAt = Instant.now(); }
@@ -49,16 +44,11 @@ public class Device {
     public UUID getZoneId() { return zoneId; }
     public String getName() { return name; }
     public DeviceType getType() { return type; }
-    public String getMqttClientId() { return mqttClientId; }
-    public String getMqttUsername() { return mqttUsername; }
-    public String getCredentialHash() { return credentialHash; }
     public DeviceStatus getStatus() { return status; }
     public String getFirmwareVersion() { return firmwareVersion; }
     public Instant getLastSeenAt() { return lastSeenAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getDeletedAt() { return deletedAt; }
-    public void update(String name, DeviceStatus status) { if (name != null && !name.isBlank()) this.name = name; if (status != null) this.status = status; }
-    public void rotateCredential(String credentialHash) { this.credentialHash = credentialHash; }
     public void seen(Instant at, String firmwareVersion) { this.lastSeenAt = at; if (firmwareVersion != null && !firmwareVersion.isBlank()) this.firmwareVersion = firmwareVersion; }
     public void disable(Instant at) { this.status = DeviceStatus.DISABLED; this.deletedAt = at; }
 }

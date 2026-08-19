@@ -43,7 +43,7 @@ public class WorkerJobs {
     @Scheduled(fixedDelayString = "${app.telemetry.outbox-delay:PT2S}", initialDelayString = "PT2S")
     @SchedulerLock(name = "outbox-consumer", lockAtMostFor = "PT1M", lockAtLeastFor = "PT1S")
     public void outbox() { outbox.processBatch(); }
-    @Scheduled(cron = "0 */5 * * * *")
+    @Scheduled(fixedDelayString = "${app.telemetry.environment-aggregation-interval:PT5M}", initialDelayString = "PT5S")
     @SchedulerLock(name = "environment-aggregation", lockAtMostFor = "PT4M")
     public void environment() { environment.aggregateAll(); }
     @Scheduled(cron = "30 */10 * * * *")

@@ -48,7 +48,6 @@ app:
   telemetry:
     service-password: ${mqtt_service_password}
     internal-token: ${mqtt_internal_token}
-    debug-test-operator-usernames: ""
   speech:
     provider: ${SPEECH_PROVIDER:disabled}
     fake-enabled: false

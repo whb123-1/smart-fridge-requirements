@@ -64,7 +64,7 @@ public class SensorSlot {
     public int getConsecutiveSuspectCount() { return consecutiveSuspectCount; }
     public void bind(UUID deviceId, UUID profileId, String name, String externalKey) {
         this.deviceId = deviceId; this.profileId = profileId; this.name = name; this.externalKey = externalKey;
-        this.bindingStatus = "BOUND"; this.source = "DEVICE"; this.enabled = true;
+        this.bindingStatus = "BOUND"; this.source = "VIRTUAL_SIMULATOR"; this.enabled = true;
     }
     public void unbind() {
         this.deviceId = null; this.profileId = null; this.name = null; this.externalKey = null;

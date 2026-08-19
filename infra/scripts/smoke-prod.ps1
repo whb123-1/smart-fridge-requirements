@@ -31,12 +31,6 @@ foreach ($header in @('Strict-Transport-Security', 'X-Content-Type-Options', 'X-
 $httpHeaders = (& curl.exe --max-redirs 0 --max-time 10 -sS -D - -o NUL "http://$domain/" 2>$null) -join "`n"
 if ($httpHeaders -notmatch 'HTTP/[0-9.]+ 30[1278]' -or $httpHeaders -notmatch '(?im)^Location:\s*https://') { throw 'HTTP does not redirect to HTTPS' }
 
-$curlArgs = @('--http1.1', '--max-time', '3', '-sS', '-D', '-', '-o', 'NUL')
-if ($skipTls) { $curlArgs += '-k' }
-$curlArgs += @('-H', 'Connection: Upgrade', '-H', 'Upgrade: websocket', '-H', 'Sec-WebSocket-Version: 13', '-H', 'Sec-WebSocket-Key: MTIzNDU2Nzg5MGFiY2RlZg==', '-H', 'Sec-WebSocket-Protocol: mqtt', "$baseUrl/mqtt")
-$wsHeaders = (& curl.exe @curlArgs 2>$null) -join "`n"
-if ($wsHeaders -notmatch 'HTTP/[0-9.]+ 101 Switching Protocols' -or $wsHeaders -notmatch 'Sec-WebSocket-Protocol: mqtt') { throw 'MQTT-over-WSS upgrade failed' }
-
 $passwordFile = Join-Path $rootDir 'secrets\smoke_admin_password'
 if (-not (Test-Path -LiteralPath $passwordFile) -or (Get-Item -LiteralPath $passwordFile).Length -eq 0) { throw 'Missing secrets/smoke_admin_password' }
 $loginBody = @{ identifier = 'admin'; password = (Get-Content -Raw -LiteralPath $passwordFile).Trim() } | ConvertTo-Json -Compress
@@ -60,9 +54,11 @@ foreach ($path in @('/v3/api-docs', '/swagger-ui/index.html')) {
 $debug = Invoke-WebRequest @webArgs -Headers $authHeaders -Uri "$baseUrl/api/v1/debug/telemetry/scenarios"
 if ($debug.StatusCode -ne 404) { throw 'Debug telemetry endpoint is not disabled' }
 
-$metrics = docker compose --env-file .env.prod -f compose.prod.yaml exec -T api curl --fail --silent http://localhost:8080/actuator/prometheus
+$metrics = docker compose --env-file .env.prod -f compose.prod.yaml exec -T worker curl --fail --silent http://localhost:8080/actuator/prometheus
 $metricsText = $metrics -join "`n"
 if ($LASTEXITCODE -ne 0 -or $metricsText -notmatch '(?m)^xianzhi_worker_heartbeat_age_seconds\s+([0-9.]+)$') { throw 'Worker heartbeat metric is missing' }
 if ([double]$Matches[1] -ge 120) { throw 'Worker heartbeat is stale' }
 
-Write-Output '生产冒烟通过：HTTPS、安全头与 Cookie、管理员 API、同源保护、MQTT-over-WSS、Worker、Swagger/Debug 禁用均正常。'
+if ($metricsText -notmatch '(?m)^xianzhi_virtual_simulator_connected\s+1(?:\.0+)?$') { throw 'Virtual probe simulator is not connected' }
+
+Write-Output '生产冒烟通过：HTTPS、安全头与 Cookie、管理员 API、同源保护、虚拟探头发布器、Worker、Swagger/Debug 禁用均正常。'

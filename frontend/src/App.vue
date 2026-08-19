@@ -21,9 +21,6 @@ const showFoodEditor = ref(false)
 const showMealEditor = ref(false)
 const showPurchase = ref(false)
 const showShoppingEditor = ref(false)
-const showSensorEditor = ref(false)
-const sensorInitializationBusy = ref(false)
-const sensorInitialization = ref(null)
 const showRecipeNameGenerator = ref(false)
 const showInventoryRecipeSelector = ref(false)
 const assistantOpen = ref(false)
@@ -43,9 +40,6 @@ const voiceDraft = ref(null)
 const voiceUploadInProgress = ref(false)
 const selectedFood = ref(null)
 const selectedShopItem = ref(null)
-const sensorZone = ref(null)
-const sensorSlot = ref(null)
-const sensorIdempotencyKey = ref('')
 const cookingRecipe = ref(null)
 const cookingWeight = ref(300)
 const activeCookingStep = ref(0)
@@ -70,7 +64,6 @@ const USERNAME_PATTERN = /^[a-z0-9_]{3,32}$/
 
 const foodDraft = reactive({})
 const shopDraft = reactive({ id: null, name: '', group: '其他', amount: '1 份', note: '', status: 'pending' })
-const sensorDraft = reactive({ name: '' })
 const localDate = () => {
   const now = new Date()
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
@@ -139,11 +132,6 @@ const alerts = computed(() => foods.filter(food => food.days <= 3))
 const warningZones = computed(() => zones.value.filter(zone => ['warning', 'stale'].includes(zone.state)))
 const onlineSensorCount = computed(() => Number(environmentState.value?.onlineSensorCount || 0))
 const lastEnvironmentSync = computed(() => relativeTime(environmentState.value?.lastSyncedAt))
-const initializedSensorState = computed(() => {
-  const sensorId = sensorInitialization.value?.sensors?.[0]?.id
-  if (!sensorId) return null
-  return zoneRegistry.flatMap(zone => zone.sensorSlots || []).find(sensor => String(sensor.id) === String(sensorId)) || null
-})
 const todaysMeals = computed(() => mealRecords.filter(meal => {
   if (!meal.mealAt) return false
   const at = new Date(meal.mealAt)
@@ -350,7 +338,7 @@ function zoneStateLabel(state) { return ({ normal: '正常', warning: '异常', 
 function zoneStateReason(zone) {
   if (zone.state === 'stale') return '已超过 15 分钟没有有效读数，请检查设备连接。'
   if (zone.state === 'no_sensor') return '该分区只有待绑定槽位，系统不会产生陈旧告警。'
-  if (zone.state === 'waiting_data') return '探头已绑定，正在等待硬件通过 MQTT 上报第一条真实数据。'
+  if (zone.state === 'waiting_data') return '模拟探头已绑定，正在等待第一条模拟读数。'
   if (zone.state === 'warning') return zone.incidents?.[0]?.reason === 'OUT_OF_RANGE' ? '读数已连续偏离安全范围 15 分钟。' : '读数正在偏离安全范围。'
   return '当前温湿度在安全范围内。'
 }
@@ -368,7 +356,7 @@ function applyEnvironment(remote, deviceGroups = []) {
       id: sensor.id, deviceId: device.id, name: sensor.name || `${sensor.metric === 'TEMPERATURE' ? '温度' : '湿度'}传感器`,
       type: sensor.metric === 'TEMPERATURE' ? 'temperature' : 'humidity', value: sensor.lastValue == null ? '—' : Number(sensor.lastValue),
       unit: sensor.metric === 'TEMPERATURE' ? '°C' : '%', update: relativeTime(sensor.lastReceivedAt), quality: sensor.lastQuality || 'NO_DATA',
-      lastReceivedAt: sensor.lastReceivedAt, deviceLastSeenAt: device.lastSeenAt,
+      lastReceivedAt: sensor.lastReceivedAt, deviceLastSeenAt: device.lastSeenAt, simulated: device.type === 'VIRTUAL',
     })))
     const slots = (group.slots || []).map(slot => {
       const device = devices.find(item => String(item.id) === String(slot.deviceId))
@@ -377,7 +365,7 @@ function applyEnvironment(remote, deviceGroups = []) {
         name: slot.name || `${slot.metric === 'TEMPERATURE' ? '温度' : '湿度'}槽位 ${slot.slotIndex}`,
         value: slot.lastValue == null ? '—' : Number(slot.lastValue), unit: slot.metric === 'TEMPERATURE' ? '°C' : '%',
         update: relativeTime(slot.lastReceivedAt), quality: slot.lastQuality || 'NO_DATA',
-        deviceLastSeenAt: device?.lastSeenAt || null,
+        deviceLastSeenAt: device?.lastSeenAt || null, simulated: device?.type === 'VIRTUAL',
       }
     })
     const waitingForFirstData = slots.some(slot => slot.bindingStatus === 'BOUND' && !slot.lastReceivedAt)
@@ -749,90 +737,6 @@ async function addSelectedRestock() {
 async function removeShoppingItem(item) { try { await api.deleteShoppingItem(item.id); await refreshShopping(); notify('采购项目已删除') } catch (exception) { notify(exception.message || '采购项目删除失败') } }
 function exportShopping() { const text = `鲜知购物清单\n${shopping.filter(item => item.status !== 'stored').map(item => `- ${item.group}｜${item.name} ${item.amount}（${statusLabel(item.status)}）`).join('\n')}`; const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = '鲜知购物清单.txt'; link.click(); URL.revokeObjectURL(url); notify('购物清单已导出') }
 
-async function removeBoundSensor(sensor) {
-  if (!sensor.deviceId) return
-  try { await api.unbindDeviceSensor(sensor.deviceId, sensor.id); await refreshEnvironment(); notify('传感器已解绑，逻辑槽位已恢复为待绑定') }
-  catch (exception) { notify(exception.message || '传感器解绑失败') }
-}
-function openSensorInitializer(zone, slot) {
-  sensorZone.value = zone
-  sensorSlot.value = slot
-  sensorInitialization.value = null
-  sensorInitializationBusy.value = false
-  sensorIdempotencyKey.value = globalThis.crypto?.randomUUID?.() || `sensor-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  sensorDraft.name = `${zone.name}${slot.type === 'temperature' ? '温度' : '湿度'}探头`
-  showSensorEditor.value = true
-}
-function closeSensorEditor(credentialsSaved = false) {
-  if (sensorInitialization.value && !credentialsSaved && !window.confirm('MQTT 密码关闭后无法再次查看。确认已经保存连接信息吗？')) return
-  showSensorEditor.value = false
-  sensorInitialization.value = null
-  sensorSlot.value = null
-  sensorZone.value = null
-  sensorIdempotencyKey.value = ''
-}
-async function saveSensor() {
-  if (sensorInitializationBusy.value || sensorInitialization.value || !sensorZone.value || !sensorSlot.value) return
-  const name = sensorDraft.name.trim()
-  if (!name) return notify('请填写探头名称')
-  sensorInitializationBusy.value = true
-  try {
-    sensorInitialization.value = await api.initializeSensor(sensorZone.value.id, { slotId: sensorSlot.value.id, name }, sensorIdempotencyKey.value)
-    await refreshEnvironment()
-    notify('探头、MQTT 设备和槽位已自动创建并绑定')
-  } catch (exception) {
-    if (['SENSOR_SLOT_ALREADY_BOUND', 'SENSOR_SLOT_NOT_FOUND'].includes(exception.code)) {
-      await refreshEnvironment()
-      closeSensorEditor(true)
-    }
-    notify(exception.message || '探头初始化失败，请重试')
-  } finally { sensorInitializationBusy.value = false }
-}
-function sensorMqttConfiguration() {
-  const device = sensorInitialization.value
-  const credential = device?.credential
-  const sensor = device?.sensors?.[0]
-  if (!credential || !sensor) return null
-  const humidity = sensor.metric === 'HUMIDITY'
-  return {
-    deviceId: device.id,
-    sensorId: sensor.id,
-    metric: sensor.metric,
-    externalKey: sensor.externalKey,
-    brokerUrl: credential.brokerUrl,
-    clientId: credential.clientId,
-    username: credential.username,
-    password: credential.password,
-    topic: credential.topic,
-    qos: credential.qos,
-    retain: credential.retain,
-    telemetryExample: {
-      messageId: globalThis.crypto?.randomUUID?.() || '请替换为新的 UUID',
-      observedAt: new Date().toISOString(),
-      firmwareVersion: 'your-firmware-version',
-      readings: [{ sensorId: sensor.id, metric: sensor.metric, value: humidity ? 65 : 4, unit: humidity ? 'PERCENT' : 'C', quality: 'GOOD' }],
-    },
-  }
-}
-async function copySensorMqttConfiguration() {
-  const configuration = sensorMqttConfiguration()
-  if (!configuration) return
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(configuration, null, 2))
-    notify('MQTT 配置已复制，请立即保存')
-  } catch (exception) { notify('浏览器禁止复制，请点击“下载配置”') }
-}
-function downloadSensorMqttConfiguration() {
-  const configuration = sensorMqttConfiguration()
-  if (!configuration) return
-  const url = URL.createObjectURL(new Blob([JSON.stringify(configuration, null, 2)], { type: 'application/json;charset=utf-8' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `xianzhi-mqtt-${configuration.sensorId}.json`
-  link.click()
-  URL.revokeObjectURL(url)
-  notify('MQTT 配置已下载，请妥善保存')
-}
 function updateZoneName(zone, value) {
   const next = String(value || '').trim()
   if (!next) return notify('分区名称不能为空')
@@ -1069,13 +973,13 @@ async function sendAssistantMessage(preset = '') {
         <template v-else-if="page === 'settings'">
           <section class="page-intro"><div><p class="eyebrow">账户、偏好与冰箱分区</p><h1>设置</h1><p>过敏与忌口会作为菜谱推荐的硬性排除条件。</p></div><button class="primary-btn" @click="saveProfile">保存更改</button></section><section class="settings-layout"><div class="settings-main"><article class="setting-card"><div class="setting-title"><span v-html="icon('spark', 22)"></span><div><h2>饮食偏好</h2><p>推荐会自动遵循这些选择</p></div></div><label>口味偏好</label><div class="choice-row"><button v-for="taste in ['清淡', '少油', '低盐', '微辣', '中辣', '少糖']" :key="taste" :class="{ selected: preferences.tastes.includes(taste) }" @click="toggleTag(preferences.tastes, taste)"><span v-html="icon('check', 14)"></span>{{ taste }}</button></div><label>菜系偏好</label><div class="choice-row"><button v-for="cuisine in ['家常菜', '粤菜', '川菜', '日料', '轻食']" :key="cuisine" :class="{ selected: preferences.cuisine.includes(cuisine) }" @click="toggleTag(preferences.cuisine, cuisine)"><span v-html="icon('check', 14)"></span>{{ cuisine }}</button></div><div class="field-pair"><label>饮食目标<select v-model="preferences.goal"><option>减脂</option><option>增肌</option><option>均衡饮食</option><option>控制热量</option></select></label><label>每日热量目标<div class="input-suffix"><input v-model.number="preferences.target" type="number" /><span>千卡</span></div></label></div></article>
             <article class="setting-card">
-              <div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与探头</h2><p>普通用户可直接初始化并接入 MQTT。</p></div><div class="zone-count-control" aria-label="分区数量"><span>已初始化分区</span><strong>{{ zones.length }}</strong></div></div>
-              <p class="zone-count-note">点击待绑定槽位的“初始化”，系统会自动创建物理设备、生成 MQTT 凭据并绑定探头。</p>
+              <div class="setting-title"><span v-html="icon('box', 22)"></span><div><h2>冰箱分区与探头</h2><p>模拟探头会随冰箱初始化自动启动。</p></div><div class="zone-count-control" aria-label="分区数量"><span>已初始化分区</span><strong>{{ zones.length }}</strong></div></div>
+        <p class="zone-count-note">冰箱初始化完成后，系统会自动创建并绑定模拟探头，读数每 5 秒更新。</p>
               <div v-for="zone in zones" :key="zone.id" class="zone-editor">
                 <div class="zone-editor-top zone-target-editor"><span class="zone-icon" :style="{ background: zone.color }"></span><input :value="zone.name" aria-label="分区名称" maxlength="12" @change="updateZoneName(zone, $event.target.value)" /><label>理想温度<input v-model.number="zone.targetTemperature" type="number" step="0.1" /><small>°C</small></label><label>理想湿度<input v-model.number="zone.targetHumidity" type="number" /><small>%</small></label></div>
-                <div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp == null ? '—' : `${zone.temp.toFixed(1)} °C` }}</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity == null ? '—' : `${zone.humidity.toFixed(1)} %` }}</b></span><small>{{ zone.update }} · 实测值不可手动修改</small></div>
+                <div class="current-readings"><span><i v-html="icon('thermometer', 14)"></i>当前温度 <b>{{ zone.temp == null ? '—' : `${zone.temp.toFixed(1)} °C` }}</b></span><span><i v-html="icon('drop', 14)"></i>当前湿度 <b>{{ zone.humidity == null ? '—' : `${zone.humidity.toFixed(1)} %` }}</b></span><small>{{ zone.update }} · 模拟读数</small></div>
                 <div class="sensor-list">
-                  <div v-for="sensor in zone.sensorSlots" :key="sensor.id" class="sensor-chip" :class="{ pending: sensor.bindingStatus !== 'BOUND' || !sensor.lastReceivedAt }"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度探头' : '湿度探头' }} · {{ sensor.bindingStatus !== 'BOUND' ? '等待初始化' : sensor.lastReceivedAt ? `${sensor.update} · ${sensor.quality}` : sensor.deviceLastSeenAt ? 'MQTT 已连接，等待首条读数' : '已绑定，等待设备连接 MQTT' }}</small></div><strong>{{ sensor.bindingStatus === 'BOUND' && sensor.lastReceivedAt ? `${sensor.value} ${sensor.unit}` : sensor.bindingStatus === 'BOUND' ? '等待数据' : `槽位 ${sensor.slotIndex}` }}</strong><button v-if="sensor.bindingStatus === 'BOUND'" type="button" class="sensor-unbind-btn" title="解绑探头" @click="removeBoundSensor(sensor)">×</button><button v-else type="button" class="sensor-initialize-btn" @click="openSensorInitializer(zone, sensor)">初始化</button></div>
+                  <div v-for="sensor in zone.sensorSlots" :key="sensor.id" class="sensor-chip" :class="{ pending: sensor.bindingStatus !== 'BOUND' || !sensor.lastReceivedAt }"><span v-html="icon(sensor.type === 'temperature' ? 'thermometer' : 'drop', 15)"></span><div><b>{{ sensor.name }}</b><small>{{ sensor.type === 'temperature' ? '温度探头' : '湿度探头' }} · {{ sensor.bindingStatus !== 'BOUND' ? '系统自动绑定中' : sensor.lastReceivedAt ? `${sensor.update} · 模拟读数` : '模拟探头已绑定，等待首条读数' }}</small></div><strong>{{ sensor.bindingStatus === 'BOUND' && sensor.lastReceivedAt ? `${sensor.value} ${sensor.unit}` : sensor.bindingStatus === 'BOUND' ? '等待数据' : '自动绑定中' }}</strong></div>
                   <p v-if="!zone.sensorSlots.length" class="sensor-form-note">该分区未配置探头槽位。</p>
                 </div>
               </div>
@@ -1090,30 +994,6 @@ async function sendAssistantMessage(preset = '') {
     <div v-if="showMealEditor" class="modal-backdrop" @click.self="showMealEditor = false"><form class="modal compact-modal meal-modal" @submit.prevent="recordMeal"><div class="modal-head"><div><p class="eyebrow">饮食记录</p><h2>记录一餐</h2></div><button type="button" @click="showMealEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">菜品名称<NameSuggestionInput v-model="mealDraft.name" context="dish" placeholder="例如：鸡胸肉豆腐煲" aria-label="菜品名称" /></label><label>餐次<select v-model="mealDraft.meal"><option>早餐</option><option>午餐</option><option>晚餐</option><option>加餐</option></select></label><label>数量 / 重量<input v-model="mealDraft.amount" placeholder="可选" /></label><label>单位<select v-model="mealDraft.unit"><option>克</option><option>份</option><option>个</option></select></label></div><div class="meal-estimate" :class="{ loading: isEstimatingMeal, error: mealEstimateError }"><span v-html="icon('spark', 20)"></span><div v-if="isEstimatingMeal"><b>正在查询营养数据</b><small>根据菜谱数据库或规则估算</small></div><div v-else-if="mealEstimate"><b>估算 {{ mealEstimate.calories }} 千卡</b><small>{{ mealEstimate.source }} · 蛋白质约 {{ mealEstimate.protein ?? '—' }} 克</small></div><div v-else-if="mealEstimateError"><b>{{ mealEstimateError }}</b><button type="button" class="text-btn" @click="estimateMealNutrition">重新估算</button></div><div v-else><b>输入菜品后查询营养数据</b><small>结果会标明数据库或规则来源</small></div></div><div class="modal-actions lowered-actions"><button type="button" class="secondary-btn" @click="showMealEditor = false">取消</button><button class="primary-btn" :disabled="!mealEstimate || isEstimatingMeal" >记录饮食</button></div></form></div>
     <div v-if="showShoppingEditor" class="modal-backdrop" @click.self="showShoppingEditor = false"><form class="modal compact-modal" @submit.prevent="saveShoppingItem"><div class="modal-head"><div><p class="eyebrow">采购清单</p><h2>{{ shopDraft.id ? '编辑项目' : '添加项目' }}</h2></div><button type="button" @click="showShoppingEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">项目名称<NameSuggestionInput v-model="shopDraft.name" context="ingredient" placeholder="例如：燕麦片" aria-label="采购项目名称" /></label><label>分类<select v-model="shopDraft.group"><option>蔬果</option><option>主食</option><option>调味品</option><option>菜谱缺料</option><option>其他</option></select></label><label>数量 / 单位<input v-model="shopDraft.amount" placeholder="例如：1 袋" /></label><label class="wide">备注<input v-model="shopDraft.note" placeholder="例如：低于常用库存" /></label><label>采购状态<select v-model="shopDraft.status" :disabled="shopDraft.status === 'stored'"><option value="pending">待购买</option><option value="purchased">已购买</option><option v-if="shopDraft.status === 'stored'" value="stored">已入库</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showShoppingEditor = false">取消</button><button class="primary-btn">保存项目</button></div></form></div>
     <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>参考保质期<input v-model="purchaseDraft.shelf" type="number" /></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
-    <div v-if="showSensorEditor && sensorZone && sensorSlot" class="modal-backdrop" @click.self="closeSensorEditor()">
-      <form class="modal compact-modal sensor-modal" @submit.prevent="saveSensor">
-        <div class="modal-head"><div><p class="eyebrow">{{ sensorZone.name }} · 槽位 {{ sensorSlot.slotIndex }}</p><h2>{{ sensorInitialization ? 'MQTT 已就绪' : '初始化探头' }}</h2></div><button type="button" aria-label="关闭" @click="closeSensorEditor()"><span v-html="icon('close')"></span></button></div>
-        <template v-if="!sensorInitialization">
-          <div class="sensor-init-summary"><span v-html="icon(sensorSlot.type === 'temperature' ? 'thermometer' : 'drop', 22)"></span><div><b>{{ sensorSlot.type === 'temperature' ? '温度探头' : '湿度探头' }}</b><small>系统将自动创建物理设备并绑定 MQTT</small></div></div>
-          <label>探头名称<input v-model="sensorDraft.name" maxlength="72" placeholder="例如：左侧上层温度探头" autofocus /></label>
-          <p class="sensor-form-note">确认后会一次完成设备创建、MQTT 凭据生成和槽位绑定。</p>
-          <div class="modal-actions"><button type="button" class="secondary-btn" :disabled="sensorInitializationBusy" @click="closeSensorEditor(true)">取消</button><button class="primary-btn" :disabled="sensorInitializationBusy">{{ sensorInitializationBusy ? '正在初始化' : '初始化并绑定 MQTT' }}</button></div>
-        </template>
-        <template v-else>
-          <div class="mqtt-ready-banner"><span v-html="icon(initializedSensorState?.lastReceivedAt ? 'check' : 'clock', 20)"></span><div><b>{{ initializedSensorState?.lastReceivedAt ? `已收到真实读数：${initializedSensorState.value} ${initializedSensorState.unit}` : initializedSensorState?.deviceLastSeenAt ? '设备已连接，等待首条读数' : '探头已绑定，等待设备连接 MQTT' }}</b><small>页面每 5 秒读取后端状态；以下密码只显示这一次，请立即复制或下载。</small></div></div>
-          <dl class="mqtt-credential-list">
-            <div><dt>Broker</dt><dd><code>{{ sensorInitialization.credential.brokerUrl }}</code></dd></div>
-            <div><dt>Client ID</dt><dd><code>{{ sensorInitialization.credential.clientId }}</code></dd></div>
-            <div><dt>用户名</dt><dd><code>{{ sensorInitialization.credential.username }}</code></dd></div>
-            <div class="credential-secret"><dt>一次性密码</dt><dd><code>{{ sensorInitialization.credential.password }}</code></dd></div>
-            <div><dt>Topic</dt><dd><code>{{ sensorInitialization.credential.topic }}</code></dd></div>
-            <div><dt>Sensor ID</dt><dd><code>{{ sensorInitialization.sensors[0]?.id }}</code></dd></div>
-            <div><dt>QoS / Retain</dt><dd><code>{{ sensorInitialization.credential.qos }} / {{ sensorInitialization.credential.retain }}</code></dd></div>
-          </dl>
-          <div class="modal-actions mqtt-actions"><button type="button" class="secondary-btn" @click="copySensorMqttConfiguration">复制全部配置</button><button type="button" class="secondary-btn" @click="downloadSensorMqttConfiguration">下载配置</button><button type="button" class="primary-btn" @click="closeSensorEditor(true)">我已保存，完成</button></div>
-        </template>
-      </form>
-    </div>
     <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">菜谱数据库筛选</p><h2>选择库存食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择优先使用的食材，系统会结合库存和饮食偏好筛选 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于筛选菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? '筛选中' : `使用已选食材筛选 (${selectedInventoryFoods.length})` }}</button></div></form></div>
     <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">菜谱数据库筛选</p><h2>按菜名筛选</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜名<NameSuggestionInput v-model="recipeNameDraft" context="dish" placeholder="例如：番茄炒蛋" aria-label="菜名" /></label><p class="recipe-generator-note">系统会结合菜名、当前库存和饮食偏好筛选最多 3 个已发布菜谱。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="isGeneratingRecipe">{{ isGeneratingRecipe ? '筛选中' : '筛选 3 张菜谱' }}</button></div></form></div>
     <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />

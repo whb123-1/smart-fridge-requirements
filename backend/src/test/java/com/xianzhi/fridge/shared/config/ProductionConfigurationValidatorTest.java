@@ -34,6 +34,22 @@ class ProductionConfigurationValidatorTest {
     }
 
     @Test
+    void acceptsInternalVirtualProbeTransportWithoutAClientBrokerUrl() {
+        AppProperties app=hardenedApp();
+        TelemetryProperties telemetry=new TelemetryProperties();
+        telemetry.setEnabled(true);
+        telemetry.setServicePassword("m".repeat(24));
+        telemetry.setInternalToken("i".repeat(40));
+        SpeechProperties speech=new SpeechProperties();speech.setProvider("disabled");speech.setFakeEnabled(false);
+        StorageProperties storage=new StorageProperties();storage.setProvider("disabled");
+
+        var validator=new ProductionConfigurationValidator(app,telemetry,speech,storage,
+                new AssistantProperties(),hardenedEnvironment());
+
+        assertThatCode(()->validator.run(null)).doesNotThrowAnyException();
+    }
+
+    @Test
     void acceptsDeepSeekChatAndOpenAiSpeechAndEmbeddingsWithMinio() {
         ProviderFixture fixture=providerFixture();
 

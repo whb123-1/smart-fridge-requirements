@@ -58,15 +58,13 @@ app:
     deletion-retention: ${IDENTITY_DELETION_RETENTION:P90D}
   telemetry:
     broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
-    public-broker-url: ${MQTT_PUBLIC_BROKER_URL:tcp://localhost:1883}
     service-username: ${MQTT_SERVICE_USERNAME:service}
     service-password: ${MQTT_SERVICE_PASSWORD:change-me}
-    simulator-username: ${MQTT_SIMULATOR_USERNAME:simulator}
-    simulator-password: ${MQTT_SIMULATOR_PASSWORD:change-me-simulator}
     internal-token: ${MQTT_INTERNAL_TOKEN:replace-with-an-internal-development-token}
-    debug-test-operator-usernames: ${DEBUG_TEST_OPERATOR_USERNAMES:}
     emit-interval: ${MQTT_SIMULATOR_EMIT_INTERVAL:PT1M}
     enabled: ${MQTT_ENABLED:false}
+    virtual-simulator-enabled: ${VIRTUAL_TELEMETRY_ENABLED:false}
+    environment-aggregation-interval: ${ENVIRONMENT_AGGREGATION_INTERVAL:PT5M}
   security:
     jwt-issuer: ${JWT_ISSUER:xianzhi-api}
     jwt-signing-key: ${JWT_SIGNING_KEY:replace-with-a-development-secret-at-least-32-bytes}

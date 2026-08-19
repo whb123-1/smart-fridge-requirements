@@ -36,11 +36,6 @@
     respond 404
   }
 
-  @mqtt path /mqtt /mqtt/*
-  handle @mqtt {
-    reverse_proxy emqx:8083
-  }
-
   handle /grafana/* {
     reverse_proxy grafana:3000
   }

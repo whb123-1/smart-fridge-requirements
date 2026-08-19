@@ -13,7 +13,7 @@
 2. 如何按可重复、可留证的方式完成全量黑盒验收。
 3. 如何实时观察 MQTT 原始消息、API 入库、MySQL 状态、Worker 聚合和告警结果。
 
-黑盒验收只依据 UI、公开 API、MQTT 设备契约、运行状态、日志、指标和数据库最终结果，不依赖内部 Java 方法实现。数据库查询仅用于验证外部动作产生的持久化结果，不直接修改业务表。
+黑盒验收只依据 UI、公开 API、虚拟探头的可观察结果、运行状态、日志、指标和数据库最终结果，不依赖内部 Java 方法实现。数据库查询仅用于验证外部动作产生的持久化结果，不直接修改业务表。
 
 ## 2. 范围和边界
 
@@ -21,11 +21,11 @@
 
 - 注册、登录、刷新、注销、修改密码和会话即时撤销。
 - 单用户私有冰箱初始化、库存、批次、保质期、采购、通知和语音草稿。
-- 设备注册/绑定、MQTT 5、QoS 1、去重、乱序/异常数据和环境聚合。
+- 虚拟探头自动创建/绑定、内部 MQTT 5、QoS 1、去重、乱序/异常数据和环境聚合。
 - 菜谱来源/导入、索引、收藏、缩放、做菜、饮食和助手降级。
 - 管理员查询、启停、强退、临时密码、升降权、删除、恢复和审计。
 - HTTPS、安全头、Cookie、同源写保护、生产端点收敛。
-- 备份、隔离恢复、监控、日志、负载和 100 设备 MQTT 验收。
+- 备份、隔离恢复、监控、日志和虚拟探头 MQTT 验收。
 
 ### 2.2 明确不覆盖
 
@@ -41,9 +41,8 @@
 ```mermaid
 flowchart LR
   Browser[浏览器 / Vue 3 SPA] -->|HTTPS 443| Caddy[Caddy Web 网关]
-  Device[冰箱设备/模拟器] -->|MQTT 5 over WSS /mqtt| Caddy
+  Worker[虚拟探头 Worker] -->|MQTT 5 QoS 1| EMQX[内部 EMQX Broker]
   Caddy -->|/api/v1/*| API[Spring Boot API]
-  Caddy -->|/mqtt| EMQX[EMQX Broker]
   Caddy -->|/grafana| Grafana[Grafana]
   EMQX -->|HTTP 鉴权与 ACL| API
   EMQX -->|QoS 1 通配订阅| API
@@ -67,12 +66,12 @@ flowchart LR
 
 | 组件 | 主要职责 | 对外暴露 |
 | --- | --- | --- |
-| `web` / Caddy | SPA、HTTPS、API 代理、MQTT-over-WSS、Grafana 子路径 | 主机 80/443 |
+| `web` / Caddy | SPA、HTTPS、API 代理、Grafana 子路径 | 主机 80/443 |
 | `api` | REST、认证授权、MQTT 鉴权/ACL、QoS 1 订阅和遥测事务入库 | 仅内部 8080 |
 | `worker` | Outbox、环境聚合、保质期风险、通知、语音、菜谱导入/索引、匿名化和清理 | 不对外 |
 | `mysql` | 唯一业务事实来源、审计、时序和任务状态 | 仅内部 3306 |
 | `redis` | 限流、缓存和短期安全状态 | 仅内部 6379 |
-| `emqx` | MQTT 连接、QoS 1、HTTP 鉴权和主题 ACL | 仅经 Caddy `/mqtt` |
+| `emqx` | 内部 MQTT 连接、QoS 1、HTTP 鉴权和主题 ACL | 仅内部网络 |
 | `minio` | 可选 S3 兼容语音对象 | 仅内部 |
 | `qdrant` | 可重建的菜谱向量索引；MySQL 仍是权威来源 | 仅内部 |
 | `backup` | 每日一致性备份、保留和隔离恢复演练 | 不对外 |
@@ -81,9 +80,8 @@ flowchart LR
 ### 3.2 MQTT 数据链路
 
 ```text
-设备发布 smart-fridge/v1/{deviceId}/telemetry
-  -> Caddy /mqtt (WSS)
-  -> EMQX 密码鉴权 + 主题 ACL
+Worker 为每个 ACTIVE 的 VIRTUAL 探头发布 smart-fridge/v1/{deviceId}/telemetry
+  -> 内部 EMQX 密码鉴权 + 主题 ACL
   -> API 的 QoS 1 通配订阅
   -> telemetry_message（消息级结果）
   -> sensor_reading（合法读数）
@@ -165,8 +163,7 @@ npm run dev
 | 普通用户 A | 主业务正向流程 | 独立冰箱和数据 |
 | 普通用户 B | 越权隔离验证 | 不得看到用户 A 资源 |
 | 管理员 | 用户生命周期和运维 | 不要求冰箱初始化 |
-| MQTT 设备 | 正式设备凭据/主题 | 凭据只返回一次 |
-| MQTT 非法客户端 | 鉴权和 ACL 反向用例 | 只使用专用测试账号 |
+| 虚拟探头 Worker | 内部服务账号发布模拟遥测 | 不向用户暴露凭据或主题 |
 
 测试账号使用 `bb_<日期>_<编号>` 命名；邮箱使用 `.invalid` 测试域。不得使用真实个人邮箱、真实食品隐私数据或生产业务用户执行破坏性用例。
 
@@ -184,8 +181,8 @@ npm run dev
 - 无已知 P1/P2 缺陷；所有失败有缺陷编号、日志、traceId 和复现步骤。
 - 管理员、身份、库存、MQTT、备份恢复和安全门禁全部通过。
 - 负载满足读取 p95 < 500 ms、写入 p95 < 800 ms、错误率 < 1%。
-- 100 设备 QoS 1 的 PUBACK、消息、`ACCEPTED` 和读数计数一致。
-- 测试账号/设备已停用或软删除，临时凭据和导出文件已安全清理。
+- 虚拟探头持续 QoS 1 发布，`telemetry_message`、`ACCEPTED` 和读数持续增长且来源为 `VIRTUAL_SIMULATOR`。
+- 测试账号已停用或软删除，关联虚拟探头停止发布。
 
 ### 5.4 缺陷等级
 
@@ -257,18 +254,18 @@ npm run dev
 
 | ID | 优先级 | 场景与步骤 | 期望结果 |
 | --- | --- | --- | --- |
-| BB-MQTT-001 | P0 | 普通用户在“设置 → 冰箱分区与探头”选择待绑定槽位并初始化 | 自动创建 PHYSICAL 设备并绑定槽位；一次展示 Broker、Client ID、用户名、密码、Topic 和 Sensor ID；可复制或下载配置 |
-| BB-MQTT-002 | P0 | 设备发布自己的主题并订阅任意主题 | 自有发布允许；设备订阅和跨设备发布被 ACL 拒绝 |
-| BB-MQTT-003 | P0 | WSS QoS 1 发布合法 GOOD 温度/湿度 | PUBACK；`telemetry_message=ACCEPTED`；对应读数各一条 |
+| BB-MQTT-001 | P0 | 普通用户完成冰箱初始化 | 自动创建并绑定 VIRTUAL 模拟探头；不显示 Broker、Client ID、用户名、密码或 Topic |
+| BB-MQTT-002 | P0 | 检查普通用户页面和公开端口 | 不存在设备凭据、Broker/Topic 配置或公网 MQTT 入口 |
+| BB-MQTT-003 | P0 | Worker 经内部 EMQX 以 QoS 1 发布模拟温度/湿度 | `telemetry_message=ACCEPTED`；对应读数各一条；来源 `VIRTUAL_SIMULATOR` |
 | BB-MQTT-004 | P0 | 重发相同 `messageId` | 不重复写读数；去重结果可追踪 |
 | BB-MQTT-005 | P1 | 发布未来超限、错误 Schema、跨设备 sensorId 或物理越界值 | 消息被拒绝且有错误码；不更新当前值 |
 | BB-MQTT-006 | P1 | 发布 48 小时内乱序 GOOD 读数 | 历史读数保存，但不覆盖最新当前值 |
 | BB-MQTT-007 | P1 | 发布变化速率超限读数 | 质量为 SUSPECT，不影响当前环境；连续异常产生事件 |
 | BB-MQTT-008 | P0 | 持续越界 15 分钟，再恢复正常 15 分钟 | 事件 OPEN 后 CLOSED；风险只增不回退；站内通知去重 |
 | BB-MQTT-009 | P1 | 停止数据超过陈旧阈值 | 环境状态/事件明确显示 STALE，不伪装为正常 |
-| BB-MQTT-010 | P0 | 禁用/删除用户后保持旧 MQTT 连接并尝试重连 | 旧连接不能继续有效入库，旧凭据重连失败 |
-| BB-MQTT-011 | P0 | 运行 100 设备 QoS 1 门禁 | PUBACK、消息、ACCEPTED、读数均 100，无静默丢失 |
-| BB-MQTT-012 | P0 | 并发初始化同一待绑定槽位，或用另一普通用户初始化该槽位 | 只有一个事务成功；重复绑定返回 409；越权返回 404；不产生孤立设备 |
+| BB-MQTT-010 | P0 | 禁用/删除用户后保持虚拟探头 Worker 运行 | 对应虚拟探头停止发布，旧读数不再新增 |
+| BB-MQTT-011 | P0 | 连续观察虚拟探头 30 秒 | 每个 ACTIVE 模拟探头约每 5 秒发布；无静默停止 |
+| BB-MQTT-012 | P0 | 禁用或删除用户后继续观察 Worker | 对应模拟探头停止发布，不产生新读数 |
 | BB-NOT-001 | P1 | 触发临期、过期、低库存和环境事件 | 只生成站内通知；静默时段和去重生效 |
 | BB-NOT-002 | P1 | 尝试开启邮件 | API 响应中 `emailEnabled=false`，无邮件投递 |
 
@@ -353,7 +350,7 @@ npm run test:e2e
 | BB-MON-001 | P0 | 查看 API 指标和 Worker 心跳 | `xianzhi_mqtt_connected=1`，心跳年龄 <120 秒 |
 | BB-MON-002 | P1 | 产生受控错误并用 traceId 查询 Loki | 能定位同一请求，日志无密码/Token/完整邮箱 |
 | BB-PERF-001 | P0 | 50 VU 运行 60 秒 | 读取 p95 <500 ms，写入 p95 <800 ms，错误率 <1% |
-| BB-PERF-002 | P0 | 100 设备并发 QoS 1 | 四层计数全部 100，无静默丢失 |
+| BB-PERF-002 | P0 | 多个虚拟探头持续 QoS 1 | 发布日志、消息、`ACCEPTED` 和读数无静默停止 |
 
 备份与恢复：
 
@@ -367,7 +364,7 @@ npm run test:e2e
   run --rm --entrypoint /opt/xianzhi/restore-drill.sh backup
 ```
 
-负载与 100 设备命令见 [负载验收说明](../infra/load/README.md)。负载测试会写测试数据，只能在批准窗口执行。
+核心 API 负载命令见 [负载验收说明](../infra/load/README.md)。负载测试会写测试数据，只能在批准窗口执行。
 
 ## 7. 实时观察 MQTT 与 MySQL
 
@@ -375,18 +372,13 @@ npm run test:e2e
 
 在三个 PowerShell 终端同时运行：
 
-终端 A——观察 Broker 转发的原始 MQTT 遥测：
+终端 A——观察虚拟探头的 MQTT 发布日志（Broker 仅内部可访问）：
 
 ```powershell
-# 仅首次安装 Python MQTT 依赖
-python -m pip install --target .tmp/mqtt-watch -r infra/load/requirements.txt
-
-.\infra\scripts\watch-mqtt.ps1 -Compact
-# 只看某台设备：
-# .\infra\scripts\watch-mqtt.ps1 -DeviceId '<device-uuid>'
+& $Docker compose --env-file .env.prod -f compose.prod.yaml logs -f --tail 100 worker emqx
 ```
 
-该脚本通过正式 `wss://<APP_DOMAIN>/mqtt` 连接，以服务账号只读订阅 `smart-fridge/v1/+/telemetry`。它不会打印密码，但会显示设备/传感器 UUID 和遥测值；共享屏幕或导出日志前仍需按敏感运行数据处理。
+Worker 日志中的 `virtual telemetry published` 表示已向内部 EMQX 提交 QoS 1 消息；`virtual simulator MQTT connection failed` 或 `publish failed` 表示发布链路异常。日志不会输出密码、令牌或完整 payload。
 
 终端 B——每 2 秒观察 MySQL 的消息、读数、环境状态、库存流水、Outbox 和心跳：
 
@@ -410,10 +402,10 @@ python -m pip install --target .tmp/mqtt-watch -r infra/load/requirements.txt
 
 ### 7.2 一条消息应看到什么
 
-1. MQTT 终端先出现主题、QoS 和原始 JSON。
-2. MySQL 的“最新 MQTT 消息”出现同一 `messageId`，合法消息为 `ACCEPTED`。
-3. “最新传感器读数”出现对应 sensorId、value、unit 和 quality。
-4. 设备 `last_seen` 和传感器当前值更新；环境聚合按 Worker 调度稍后反映到 `zone_environment_state`。
+1. Worker 日志先出现 `virtual telemetry published`。
+2. MySQL 的“最新 MQTT 消息”出现对应消息，合法消息为 `ACCEPTED`。
+3. “最新传感器读数”出现对应 sensorId、value、unit、quality 和 `VIRTUAL_SIMULATOR`。
+4. 虚拟探头 `last_seen` 和传感器当前值更新；环境聚合按 Worker 调度稍后反映到 `zone_environment_state`。
 5. 满足持续时间门槛后，`environment_incident`、风险评估和站内通知才变化。瞬时越界不应立即制造持续事件。
 
 若只看到 MQTT、没有 MySQL：先检查 API 日志中的 Schema/ACL/归属拒绝和 `xianzhi_mqtt_connected`。若 `telemetry_message` 为 `ACCEPTED` 但没有读数，核对 payload 中 sensorId、metric 和物理范围。若读数存在但环境状态未变化，检查 Worker 心跳和调度窗口。
@@ -461,7 +453,7 @@ npm run build
 npm run test:e2e
 ```
 
-之后执行备份恢复、镜像扫描、50 VU 和 100 设备门禁。测试日志不得包含 `secrets/` 内容。
+之后执行备份恢复、镜像扫描、50 VU 和虚拟探头持续发布门禁。测试日志不得包含 `secrets/` 内容。
 
 ## 9. 测试记录模板
 
@@ -492,8 +484,8 @@ npm run test:e2e
 - 后端 63/63、前端 25/25、Playwright 5 passed/3 skipped。
 - V001→V013 空库和 V002→V013 原地升级通过。
 - API/Web/Backup 的 OS 与应用二进制 Trivy High/Critical 均为 0。
-- 内部 CA HTTPS/WSS、管理员生命周期、Worker、S3、备份和隔离恢复通过。
+- 内部 CA HTTPS、管理员生命周期、Worker 虚拟探头、S3、备份和隔离恢复通过。
 - 50 VU：读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%。
-- 100 设备：PUBACK、`telemetry_message`、`ACCEPTED`、`sensor_reading` 均为 100。
+- 虚拟探头：Worker 发布日志、`telemetry_message`、`ACCEPTED` 与 `sensor_reading` 持续一致增长。
 
 该结果只代表当时的镜像、主机和配置。镜像、依赖、数据库参数、域名、证书、外部供应商或网络拓扑变化后必须重新验收。

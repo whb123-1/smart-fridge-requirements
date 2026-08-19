@@ -116,7 +116,7 @@ class PhaseOneIntegrationTest {
     }
 
     @Test
-    void normalUserCanAtomicallyInitializeSensorAndReceiveMqttCredentialOnce() throws Exception {
+    void normalUserOnboardingAutomaticallyBindsVirtualSensorWithoutMqttCredentials() throws Exception {
         Session owner = register("sensor-owner-" + UUID.randomUUID() + "@example.com");
         MvcResult onboarding = mvc.perform(post("/api/v1/onboarding/initialize")
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
@@ -132,47 +132,19 @@ class PhaseOneIntegrationTest {
         MvcResult slots = mvc.perform(get("/api/v1/zones/{id}/sensors", zoneId)
                         .header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].bindingStatus").value("PENDING_BIND"))
+                .andExpect(jsonPath("$.data[0].bindingStatus").value("BOUND"))
+                .andExpect(jsonPath("$.data[0].deviceId").isNotEmpty())
+                .andExpect(jsonPath("$.data[0].source").doesNotExist())
                 .andReturn();
         String slotId = data(slots).path(0).path("id").asText();
-        String key = UUID.randomUUID().toString();
-        String request = "{\"slotId\":\"" + slotId + "\",\"name\":\"Chill temperature probe\"}";
-
-        MvcResult initialized = mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
-                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON).content(request))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.type").value("PHYSICAL"))
-                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.data.credential.brokerUrl").isNotEmpty())
-                .andExpect(jsonPath("$.data.credential.clientId").isNotEmpty())
-                .andExpect(jsonPath("$.data.credential.username").isNotEmpty())
-                .andExpect(jsonPath("$.data.credential.password").isNotEmpty())
-                .andExpect(jsonPath("$.data.credential.topic").isNotEmpty())
-                .andExpect(jsonPath("$.data.sensors[0].id").value(slotId))
-                .andExpect(jsonPath("$.data.sensors[0].bindingStatus").value("BOUND"))
-                .andExpect(jsonPath("$.data.sensors[0].externalKey").value("temperature-1"))
-                .andReturn();
-        JsonNode initializedData = data(initialized);
-        String deviceId = initializedData.path("id").asText();
-        String password = initializedData.path("credential").path("password").asText();
-
-        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
-                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON).content(request))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.id").value(deviceId))
-                .andExpect(jsonPath("$.data.credential.password").value(password));
-        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
-                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON).content(request))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SENSOR_SLOT_ALREADY_BOUND"));
+        String deviceId = data(slots).path(0).path("deviceId").asText();
+        assertThat(jdbc.queryForObject("select device_type from device where id=UUID_TO_BIN(?)", String.class, deviceId))
+                .isEqualTo("VIRTUAL");
 
         Session stranger = register("sensor-stranger-" + UUID.randomUUID() + "@example.com");
-        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
+        mvc.perform(get("/api/v1/zones/{id}/sensors", zoneId)
                         .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ZONE_NOT_FOUND"));
     }
