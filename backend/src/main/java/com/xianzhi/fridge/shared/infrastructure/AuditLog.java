@@ -16,13 +16,22 @@ import org.hibernate.type.SqlTypes;
 public class AuditLog {
     @Id @JdbcTypeCode(Types.BINARY) private UUID id;
     @JdbcTypeCode(Types.BINARY) @Column(name = "user_id") private UUID userId;
+    @JdbcTypeCode(Types.BINARY) @Column(name = "target_user_id") private UUID targetUserId;
     @Column(name = "event_type", nullable = false, length = 80) private String eventType;
     @Column(name = "trace_id", nullable = false, length = 64) private String traceId;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name = "metadata_json", columnDefinition = "json") private String metadataJson;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     protected AuditLog() { }
-    public AuditLog(UUID id, UUID userId, String eventType, String traceId, String metadataJson) {
-        this.id = id; this.userId = userId; this.eventType = eventType; this.traceId = traceId; this.metadataJson = metadataJson;
+    public AuditLog(UUID id, UUID userId, UUID targetUserId, String eventType, String traceId, String metadataJson) {
+        this.id = id; this.userId = userId; this.targetUserId = targetUserId; this.eventType = eventType;
+        this.traceId = traceId; this.metadataJson = metadataJson;
     }
     @PrePersist void onCreate() { createdAt = Instant.now(); }
+    public UUID getId() { return id; }
+    public UUID getUserId() { return userId; }
+    public UUID getTargetUserId() { return targetUserId; }
+    public String getEventType() { return eventType; }
+    public String getTraceId() { return traceId; }
+    public String getMetadataJson() { return metadataJson; }
+    public Instant getCreatedAt() { return createdAt; }
 }

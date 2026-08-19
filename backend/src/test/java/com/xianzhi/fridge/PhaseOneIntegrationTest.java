@@ -12,13 +12,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xianzhi.fridge.identity.api.AdminUserContracts;
+import com.xianzhi.fridge.identity.application.AdminUserService;
+import com.xianzhi.fridge.identity.domain.UserRole;
 import com.xianzhi.fridge.recipe.application.RecipeImportProcessor;
 import com.xianzhi.fridge.shared.application.OutboxProcessor;
+import com.xianzhi.fridge.shared.web.ApiException;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
@@ -71,6 +76,7 @@ class PhaseOneIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired RecipeImportProcessor recipeImports;
     @Autowired OutboxProcessor outbox;
+    @Autowired AdminUserService adminUsers;
 
     @Test
     void onboardingIsIdempotentAndDataIsIsolatedByUser() throws Exception {
@@ -474,6 +480,138 @@ class PhaseOneIntegrationTest {
         assertThat(data(ingredientGenerate).path("recipes").findValuesAsText("name")).contains("香煎豆腐");
         mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(other)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void administratorControlsUserLifecycleAndRevocationIsImmediate() throws Exception {
+        Session administrator = register("lifecycle-admin-" + UUID.randomUUID() + "@example.com");
+        jdbc.update("update app_user set role='ADMIN' where username=?", administrator.username());
+        Session target = register("lifecycle-user-" + UUID.randomUUID() + "@example.com");
+
+        MvcResult users = mvc.perform(get("/api/v1/admin/users")
+                        .param("query", target.username()).header("Authorization", bearer(administrator)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1)).andReturn();
+        String targetId = data(users).path("items").path(0).path("id").asText();
+
+        mvc.perform(patch("/api/v1/admin/users/{id}/status", targetId)
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"DISABLED\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/me").header("Authorization", bearer(target)))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/auth/refresh").cookie(refreshCookie(target.refreshToken())))
+                .andExpect(status().isUnauthorized());
+
+        mvc.perform(patch("/api/v1/admin/users/{id}/status", targetId)
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isOk());
+        MvcResult relogin = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"" + target.username() + "\",\"password\":\"test-password\"}"))
+                .andExpect(status().isOk()).andReturn();
+        String accessBeforeReset = data(relogin).path("accessToken").asText();
+
+        MvcResult reset = mvc.perform(post("/api/v1/admin/users/{id}/password-reset", targetId)
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.temporaryPassword").isString())
+                .andReturn();
+        String temporaryPassword = data(reset).path("temporaryPassword").asText();
+        assertThat(temporaryPassword).hasSize(24);
+        mvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + accessBeforeReset))
+                .andExpect(status().isUnauthorized());
+
+        String temporaryLoginBody = objectMapper.writeValueAsString(Map.of(
+                "identifier", target.username(), "password", temporaryPassword));
+        MvcResult temporaryLogin = mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(temporaryLoginBody)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.user.passwordChangeRequired").value(true)).andReturn();
+        String temporaryAccess = data(temporaryLogin).path("accessToken").asText();
+        mvc.perform(get("/api/v1/fridges").header("Authorization", "Bearer " + temporaryAccess))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("PASSWORD_CHANGE_REQUIRED"));
+        mvc.perform(patch("/api/v1/me/password").header("Authorization", "Bearer " + temporaryAccess)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(Map.of(
+                                "currentPassword", temporaryPassword, "newPassword", "new-test-password"))))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"identifier\":\"" + target.username() + "\",\"password\":\"new-test-password\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.user.passwordChangeRequired").value(false));
+
+        mvc.perform(delete("/api/v1/admin/users/{id}", targetId)
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/admin/users/{id}/restore", targetId)
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/admin/users/{id}", data(mvc.perform(get("/api/v1/admin/users")
+                                .param("query", administrator.username()).header("Authorization", bearer(administrator)))
+                        .andReturn()).path("items").path(0).path("id").asText())
+                        .header("Authorization", bearer(administrator)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ADMIN_SELF_ACTION_FORBIDDEN"));
+    }
+
+    @Test
+    void administratorAuthorizationMatrixAuditAndLastAdminLockAreEnforced() throws Exception {
+        Session first = register("matrix-admin-a-" + UUID.randomUUID() + "@example.com");
+        Session second = register("matrix-admin-b-" + UUID.randomUUID() + "@example.com");
+        Session target = register("matrix-user-" + UUID.randomUUID() + "@example.com");
+        // This shared integration database retains users created by earlier test methods.
+        // Isolate the invariant under test so only this pair can satisfy the last-admin guard.
+        jdbc.update("update app_user set role='USER' where role='ADMIN'");
+        jdbc.update("update app_user set role='ADMIN' where username in (?,?)", first.username(), second.username());
+        UUID firstId = userId(first.username());
+        UUID secondId = userId(second.username());
+        UUID targetId = userId(target.username());
+
+        mvc.perform(get("/api/v1/admin/users").param("status", "not-a-status")
+                        .header("Authorization", bearer(first)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        mvc.perform(get("/api/v1/admin/users/{id}", targetId).header("Authorization", bearer(first)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.username").value(target.username()));
+
+        mvc.perform(patch("/api/v1/admin/users/{id}/role", targetId)
+                        .header("Authorization", bearer(first)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("ADMIN"));
+        mvc.perform(get("/api/v1/me").header("Authorization", bearer(target)))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/v1/admin/users/{id}/role", targetId)
+                        .header("Authorization", bearer(first)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"USER\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("USER"));
+        mvc.perform(post("/api/v1/admin/users/{id}/sessions/revoke", targetId)
+                        .header("Authorization", bearer(first)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.action").value("SESSIONS_REVOKED"));
+        mvc.perform(post("/api/v1/admin/users/{id}/restore", targetId)
+                        .header("Authorization", bearer(first)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("USER_NOT_DELETED"));
+        mvc.perform(get("/api/v1/admin/users/{id}/audit-logs", targetId)
+                        .header("Authorization", bearer(first)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(org.hamcrest.Matchers.greaterThanOrEqualTo(3)));
+
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            Future<String> demoteSecond = executor.submit(() -> demoteAfter(start, firstId, secondId));
+            Future<String> demoteFirst = executor.submit(() -> demoteAfter(start, secondId, firstId));
+            start.countDown();
+            assertThat(List.of(demoteSecond.get(), demoteFirst.get()))
+                    .containsExactlyInAnyOrder("ROLE_CHANGED", "LAST_ADMIN_REQUIRED");
+        }
+        Long activeAdmins = jdbc.queryForObject("select count(*) from app_user where role='ADMIN' and status='ACTIVE' and deleted_at is null", Long.class);
+        assertThat(activeAdmins).isEqualTo(1L);
+    }
+
+    private String demoteAfter(CountDownLatch start, UUID actor, UUID target) throws Exception {
+        start.await();
+        try {
+            return adminUsers.role(actor, target, UUID.randomUUID().toString(),
+                    new AdminUserContracts.RoleRequest(UserRole.USER)).action();
+        } catch (ApiException exception) {
+            return exception.getCode();
+        }
+    }
+
+    private UUID userId(String username) {
+        return UUID.fromString(jdbc.queryForObject("select BIN_TO_UUID(id) from app_user where username=?", String.class, username));
     }
 
     private Session register(String email) throws Exception {

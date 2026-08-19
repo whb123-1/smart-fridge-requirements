@@ -1,5 +1,7 @@
 # 智慧冰箱后端建设方案
 
+> 交付状态（2026-08-19）：计划中的单用户私有后端、管理员系统、V010-V013、生产部署、监控备份、CI/CD、管理后台和本机生产 Profile 验收均已完成。最终后端 57/57、前端 25/25、Playwright 5 passed/3 skipped，三张交付镜像 Trivy High/Critical 均为 0；50 VU 与 100 设备 MQTT 门禁通过。真实公网 ACME、未启用的 OpenAI/Embedding 供应商和 Linux 宿主级指标仍须在目标主机配置后验收，不能由本机结果代替。
+
 > 版本：v1.3  
 > 更新日期：2026-08-17  
 > 技术基线：Java 21、Spring Boot 3、本地 MySQL 8.4、Redis、EMQX MQTT、MinIO、Docker Compose

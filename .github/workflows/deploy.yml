@@ -1,0 +1,36 @@
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable sha-<commit> image tag
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy with backup, migration and health observation
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          IMAGE_TAG: '${{ inputs.image_tag }}'
+          GHCR_OWNER: '${{ github.repository_owner }}'
+        with:
+          host: '${{ secrets.PRODUCTION_HOST }}'
+          username: '${{ secrets.PRODUCTION_USER }}'
+          key: '${{ secrets.PRODUCTION_SSH_KEY }}'
+          envs: IMAGE_TAG,GHCR_OWNER
+          script_stop: true
+          script: |
+            set -eu
+            cd /opt/xianzhi
+            export API_IMAGE="ghcr.io/${GHCR_OWNER}/xianzhi-api:${IMAGE_TAG}"
+            export WEB_IMAGE="ghcr.io/${GHCR_OWNER}/xianzhi-web:${IMAGE_TAG}"
+            export BACKUP_IMAGE="ghcr.io/${GHCR_OWNER}/xianzhi-backup:${IMAGE_TAG}"
+            bash ./infra/scripts/deploy-prod.sh

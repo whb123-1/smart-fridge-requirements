@@ -10,6 +10,7 @@ import org.eclipse.paho.mqttv5.client.MqttAsyncClient;
 import org.eclipse.paho.mqttv5.client.MqttCallback;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse;
+import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.MqttSubscription;
@@ -22,6 +23,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.MeterRegistry;
 
 @Component
 @Profile("api")
@@ -31,9 +33,11 @@ public class MqttTelemetrySubscriber {
     private static final String TOPIC = "smart-fridge/v1/+/telemetry";
     private final TelemetryProperties properties;
     private final TelemetryIngestionService ingestion;
+    private final MeterRegistry meters;
     private MqttAsyncClient client;
-    public MqttTelemetrySubscriber(TelemetryProperties properties, TelemetryIngestionService ingestion) {
-        this.properties = properties; this.ingestion = ingestion;
+    public MqttTelemetrySubscriber(TelemetryProperties properties, TelemetryIngestionService ingestion, MeterRegistry meters) {
+        this.properties = properties; this.ingestion = ingestion; this.meters=meters;
+        meters.gauge("xianzhi.mqtt.connected",this,value->value.connected()?1:0);
     }
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
@@ -50,12 +54,13 @@ public class MqttTelemetrySubscriber {
             connectAndSubscribe();
             log.info("MQTT telemetry subscriber connected to {}", properties.getBrokerUrl());
         } catch (MqttException | RuntimeException exception) {
+            meters.counter("xianzhi.mqtt.connection.failures").increment();
             log.warn("MQTT telemetry subscriber will retry after connection failure: {}", exception.getMessage());
             closeClient();
         }
     }
     private void connectAndSubscribe() throws MqttException {
-        client = new MqttAsyncClient(properties.getBrokerUrl(), "xianzhi-api-telemetry");
+        client = new MqttAsyncClient(properties.getBrokerUrl(), "xianzhi-api-telemetry", new MemoryPersistence());
         client.setCallback(new MqttCallback() {
             @Override public void disconnected(MqttDisconnectResponse response) { log.warn("MQTT telemetry subscriber disconnected: {}", response.getReasonString()); }
             @Override public void mqttErrorOccurred(MqttException exception) { log.warn("MQTT telemetry subscriber error: {}", exception.getMessage()); }
@@ -96,4 +101,5 @@ public class MqttTelemetrySubscriber {
             client = null;
         }
     }
+    public synchronized boolean connected(){return client!=null&&client.isConnected();}
 }

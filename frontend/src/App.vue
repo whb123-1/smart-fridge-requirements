@@ -1,14 +1,15 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './services/api'
 import { logout, session, setFridge } from './session'
 import pixelPet from './assets/xianling-pixel-pet-transparent.png'
-import FridgeModel from './components/FridgeModel.vue'
 import AssistantPet from './components/AssistantPet.vue'
 import NameSuggestionInput from './components/NameSuggestionInput.vue'
 import DeliciousSynthesis from './components/DeliciousSynthesis.vue'
 import { clampZoneCount, MAX_ZONES, MIN_ZONES, ZONE_KINDS } from './components/fridgeLayouts'
+
+const FridgeModel = defineAsyncComponent(() => import('./components/FridgeModel.vue'))
 
 const route = useRoute()
 const router = useRouter()

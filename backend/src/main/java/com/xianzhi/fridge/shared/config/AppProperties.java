@@ -8,13 +8,18 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
     private String timezone = "Asia/Shanghai";
+    private String publicUrl;
     private final Security security = new Security();
     private final RateLimit rateLimit = new RateLimit();
+    private final Identity identity = new Identity();
 
     public String getTimezone() { return timezone; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
+    public String getPublicUrl() { return publicUrl; }
+    public void setPublicUrl(String publicUrl) { this.publicUrl = publicUrl; }
     public Security getSecurity() { return security; }
     public RateLimit getRateLimit() { return rateLimit; }
+    public Identity getIdentity() { return identity; }
 
     public static class Security {
         private String jwtIssuer = "xianzhi-api";
@@ -49,5 +54,14 @@ public class AppProperties {
         public void setLoginPerIpPerMinute(int value) { this.loginPerIpPerMinute = value; }
         public int getLoginPerAccountPer15Minutes() { return loginPerAccountPer15Minutes; }
         public void setLoginPerAccountPer15Minutes(int value) { this.loginPerAccountPer15Minutes = value; }
+    }
+
+    public static class Identity {
+        private String tombstoneKey = "replace-with-a-development-tombstone-key";
+        private Duration deletionRetention = Duration.ofDays(90);
+        public String getTombstoneKey() { return tombstoneKey; }
+        public void setTombstoneKey(String value) { tombstoneKey = value; }
+        public Duration getDeletionRetention() { return deletionRetention; }
+        public void setDeletionRetention(Duration value) { deletionRetention = value; }
     }
 }

@@ -27,10 +27,15 @@ public class JwtService {
     }
 
     public AccessToken issue(UUID userId) {
+        return issue(userId, 0);
+    }
+
+    public AccessToken issue(UUID userId, long sessionVersion) {
         Instant expiresAt = clock.instant().plus(properties.getSecurity().getAccessTtl());
         String token = Jwts.builder()
                 .issuer(properties.getSecurity().getJwtIssuer())
                 .subject(userId.toString())
+                .claim("sv", sessionVersion)
                 .issuedAt(Date.from(clock.instant()))
                 .expiration(Date.from(expiresAt))
                 .signWith(signingKey, Jwts.SIG.HS256)
@@ -45,7 +50,8 @@ public class JwtService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-        return new UserPrincipal(UUID.fromString(claims.getSubject()));
+        Number sessionVersion = claims.get("sv", Number.class);
+        return new UserPrincipal(UUID.fromString(claims.getSubject()), sessionVersion == null ? 0 : sessionVersion.longValue());
     }
 
     public record AccessToken(String value, Instant expiresAt) { }

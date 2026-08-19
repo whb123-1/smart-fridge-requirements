@@ -1,0 +1,23 @@
+spring:
+  main:
+    web-application-type: none
+  datasource:
+    username: ${mysql_migration_user:xianzhi_migration}
+    password: ${mysql_migration_password}
+  flyway:
+    enabled: true
+  data:
+    redis:
+      password: migration-unused
+
+app:
+  public-url: https://migration.invalid
+  identity:
+    tombstone-key: migration-unused-tombstone-key-0000000000000000
+  security:
+    jwt-signing-key: migration-unused-jwt-signing-key-0000000000000000000000000000
+    refresh-cookie-secure: true
+  telemetry:
+    enabled: false
+    service-password: migration-unused-service-password
+    internal-token: migration-unused-internal-token-0000000000

@@ -1,0 +1,58 @@
+groups:
+  - name: xianzhi-production
+    rules:
+      - alert: ApiHighErrorRate
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 1) > 0.01
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "API 5xx 错误率超过 1%" }
+      - alert: ApiReadLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{method="GET"}[5m]))) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "核心读取 API p95 超过 500ms" }
+      - alert: ApiWriteLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{method=~"POST|PUT|PATCH|DELETE"}[5m]))) > 0.8
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "核心写入 API p95 超过 800ms" }
+      - alert: MqttDisconnected
+        expr: xianzhi_mqtt_connected < 1
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "API 与 MQTT Broker 断开" }
+      - alert: OutboxBacklog
+        expr: xianzhi_outbox_pending > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Outbox 堆积超过 100" }
+      - alert: WorkerHeartbeatStale
+        expr: xianzhi_worker_heartbeat_age_seconds < 0 or xianzhi_worker_heartbeat_age_seconds > 120
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Worker 心跳中断" }
+      - alert: ExternalProviderFailures
+        expr: sum(rate(xianzhi_provider_calls_total{outcome="failure"}[10m])) by (provider) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "外部服务持续降级" }
+      - alert: RecipeIndexTaskStuck
+        expr: xianzhi_recipe_index_rebuild_active > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "菜谱索引重建长时间未完成" }
+      - alert: HostDiskSpaceLow
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} < 0.15
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "主机磁盘可用空间低于 15%" }
+      - alert: BackupStale
+        expr: time() - xianzhi_backup_last_success_timestamp_seconds > 129600
+        for: 15m
+        labels: { severity: critical }
+        annotations: { summary: "最近成功备份已超过 36 小时" }
+      - alert: RestoreDrillStale
+        expr: time() - xianzhi_restore_drill_last_success_timestamp_seconds > 691200
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "最近恢复演练已超过 8 天" }

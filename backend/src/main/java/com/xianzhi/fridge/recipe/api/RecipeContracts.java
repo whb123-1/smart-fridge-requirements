@@ -31,5 +31,14 @@ public final class RecipeContracts {
                                 @NotBlank @Size(max=500) String attributionText,@NotBlank String allowedUse,@NotBlank String sourceVersion,Boolean enabled) { }
     public record SourceView(UUID id,String name,String sourceType,String licenseCode,String attributionText,String allowedUse,String sourceVersion,boolean enabled) { }
     public record ImportRequest(@NotNull UUID sourceId,@NotNull Object payload) { }
-    public record ImportJobView(UUID id,UUID sourceId,String status,String checksum,int importedCount,int skippedCount,int errorCount,Instant createdAt,Instant completedAt) { }
+    public record ImportJobView(UUID id,UUID sourceId,String status,String checksum,int importedCount,int skippedCount,
+                                int errorCount,int attemptCount,String lastError,Instant createdAt,Instant startedAt,
+                                Instant completedAt) { }
+    public record PageView<T>(List<T> items,long total,int page,int size,int totalPages) { }
+    public record IndexRebuildJobView(UUID id,String status,String collectionName,String embeddingModelVersion,
+                                      int totalCount,int processedCount,int failureCount,String lastError,
+                                      Instant createdAt,Instant startedAt,Instant completedAt) { }
+    public record SearchIndexView(boolean vectorEnabled,String activeCollection,String embeddingModelVersion,
+                                  long readyCount,long mysqlOnlyCount,long failedCount,
+                                  IndexRebuildJobView latestRebuild) { }
 }

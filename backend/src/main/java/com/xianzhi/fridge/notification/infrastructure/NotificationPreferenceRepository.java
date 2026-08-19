@@ -1,5 +1,6 @@
 package com.xianzhi.fridge.notification.infrastructure;
 
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

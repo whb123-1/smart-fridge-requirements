@@ -1,0 +1,31 @@
+services:
+  backup:
+    build: { context: ./infra/backup }
+    image: ${BACKUP_IMAGE:-xianzhi-backup:local}
+    restart: unless-stopped
+    environment:
+      BACKUP_INITIAL_DELAY_SECONDS: ${BACKUP_INITIAL_DELAY_SECONDS:-60}
+      BACKUP_HOST: ${APP_DOMAIN:?APP_DOMAIN is required}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+    volumes:
+      - mysql_backups:/backups
+      - backup_metrics:/metrics
+    secrets:
+      - mysql_root_password
+      - restic_password
+      - restic_s3_access_key
+      - restic_s3_secret_key
+    networks: [backend]
+    depends_on:
+      mysql: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+
+volumes:
+  mysql_backups: {}
+  backup_metrics: {}
+
+secrets:
+  restic_password: { file: ./secrets/restic_password }
+  restic_s3_access_key: { file: ./secrets/restic_s3_access_key }
+  restic_s3_secret_key: { file: ./secrets/restic_s3_secret_key }

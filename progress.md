@@ -1,8 +1,29 @@
 # 项目进展交接
 
-更新时间：2026-08-18（Asia/Shanghai）
+更新时间：2026-08-19（Asia/Shanghai）
 当前分支：`main`  
 基线提交：`b02ec72dc12f20a208fc693f628dfbdc8592d82b`
+
+## 生产交付增量（2026-08-19）
+
+- 管理员与账号生命周期已经完成：持久化 `USER/ADMIN`、状态和会话版本；独立一次性 `admin-bootstrap`；管理员搜索/分页、启停、强退、临时密码、强制改密、升降权、软删除、90 天恢复/匿名化和审计；自我破坏与最后一个有效管理员受保护。管理员账户已经存在，本文件不记录任何密码。
+- 认证请求、登录和刷新都会实时检查账号为 `ACTIVE` 且未删除；禁用、删除、降权、强退或密码重置会立即让 Access/Refresh 会话失效。正式 OpenAPI、前端客户端、路由守卫和独立懒加载管理后台均已同步。
+- 已追加且只追加 V010-V013；V001-V009 未修改。空库 V001→V013 和既有 V002→V013 原地升级均已通过 MySQL 8.4 Testcontainers 验证，当前生产 schema 为 V013。
+- S3 兼容存储、OpenAI 兼容语音/LLM/Embedding、版本化 Qdrant 重建、菜谱导入任务查询/重试及索引状态运维均已实现；超时、有限重试、熔断、结构校验、指标和规则/MySQL 回退均有测试。站内通知保留，`emailEnabled` 固定为 `false` 并标记弃用。
+- 已加入生产 Compose、Caddy HTTPS/MQTT-over-WSS、独立迁移任务、Docker Secret/configtree、生产配置拒绝启动校验、Prometheus/Grafana/Loki/Promtail/Alertmanager、每日一致性备份、每周隔离恢复演练、GitHub Actions、SBOM/扫描/签名和部署/回滚运行手册。
+- 最终运行镜像基线：Spring Boot 3.5.14、Spring Framework 6.2.19、Spring Data 3.5.12、Tomcat 10.1.55、Jackson 2.21.4、Netty 4.1.136.Final、Caddy 2.11.4（Go 1.26.6）、Restic 0.19.1（Go 1.26.6）、MySQL 8.4.11。API 运行时为 Ubuntu 22.04，Web 为 Alpine 3.24，Backup 为 Oracle Linux 9.8。
+- Trivy 0.65.0 最终镜像扫描：`xianzhi-api:local` 的 Ubuntu/app.jar、`xianzhi-web:local` 的 Alpine/Caddy、`xianzhi-backup:local` 的 Oracle Linux/Restic 均为 0 High/Critical；Gitleaks 扫描 18 个提交无泄漏，npm audit 为 0。
+- 最终质量门禁：后端 57/57（含 Testcontainers、ArchUnit、OpenAPI 和核心领域行覆盖率 ≥80%）、前端 25/25、生产构建、Playwright 5 passed/3 skipped（桌面/移动互斥）均通过。
+- 本机生产 Profile 已通过内部证书 HTTPS、安全头/Cookie、同源保护、管理员全生命周期、MQTT-over-WSS、MQTT 订阅、Worker、Swagger/Debug 禁用、S3 AES256 流式往返、发布前/发布后备份和隔离 schema 恢复演练。当前 API、MySQL、Redis、EMQX、MinIO、Qdrant 均 Healthy，监控与备份服务运行。
+- 性能验收：50 VU 核心 API 读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%；100 个设备 QoS 1 的 PUBACK、`telemetry_message`、`ACCEPTED`、`sensor_reading` 均为 100，无静默丢失。
+- 当前没有已知 P1/P2 缺陷。生产日志中的冗余 `commons-logging` 依赖已经排除；最终重建、零高危扫描和冒烟复验通过。
+
+### 尚需在真实上线环境完成的外部验收
+
+- 当前验收域名为本机 `localhost`，证书来自 Caddy 内部 CA；公网 ACME 必须在真实 `APP_DOMAIN`、`ACME_EMAIL`、DNS 和 80/443 网络就绪后复验。
+- OpenAI/Embedding/Qdrant 外部调用当前未启用；Qdrant 本地集成已测，但不能宣称真实模型供应商已验收。启用任一供应商后必须重新执行超时/429/5xx/错误 Schema、熔断、降级和索引重建实测。
+- Windows Docker Desktop 无法提供 Linux cAdvisor 和完整宿主磁盘指标；实际 Linux 主机需使用 `linux-host` Profile 验收这两类指标。
+- 食品安全/营养参考数据仍需上线主体完成领域审核。只有以上实际启用项及公网证书通过后，才能把真实公网实例标记为完全生产正常。
 
 ## 当前环境状态
 
@@ -106,7 +127,9 @@
 - Compose 关闭默认保留数据卷；只有明确需要清空数据时才执行 `docker compose down -v`。
 - MQTT/EMQX 已在阶段 3 接入；MinIO 与 Qdrant 为可选 Compose Profile，默认关闭，真实邮件和外部 AI 调用也默认关闭。
 
-## 未完成的待办
+## 2026-08-18 历史待办（已由上方生产交付增量取代）
+
+以下内容保留用于追踪原始交接背景，不代表 2026-08-19 的当前完成状态；当前仍需外部验收的项目以上方清单为准。
 
 ### 后续业务与外部适配
 

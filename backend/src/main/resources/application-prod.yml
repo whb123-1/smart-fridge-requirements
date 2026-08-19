@@ -1,0 +1,83 @@
+spring:
+  config:
+    import: optional:configtree:/run/secrets/
+  datasource:
+    username: ${mysql_app_user:xianzhi_app}
+    password: ${mysql_app_password}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${redis_password}
+  flyway:
+    enabled: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  endpoint:
+    health:
+      show-details: when_authorized
+      group:
+        readiness:
+          include: readinessState,db,redis,diskSpace
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  public-url: ${APP_PUBLIC_URL}
+  identity:
+    tombstone-key: ${identity_tombstone_key}
+    deletion-retention: P90D
+  security:
+    jwt-signing-key: ${jwt_signing_key}
+    refresh-cookie-secure: true
+    admin-usernames: []
+  telemetry:
+    service-password: ${mqtt_service_password}
+    internal-token: ${mqtt_internal_token}
+    debug-test-operator-usernames: ""
+  speech:
+    provider: ${SPEECH_PROVIDER:disabled}
+    fake-enabled: false
+    base-url: ${SPEECH_BASE_URL:}
+    api-key: ${openai_api_key:}
+    model: ${SPEECH_MODEL:whisper-1}
+  storage:
+    provider: ${STORAGE_PROVIDER:disabled}
+    endpoint: ${STORAGE_ENDPOINT:}
+    region: ${STORAGE_REGION:us-east-1}
+    bucket: ${STORAGE_BUCKET:xianzhi-speech}
+    access-key: ${storage_access_key:}
+    secret-key: ${storage_secret_key:}
+    path-style: ${STORAGE_PATH_STYLE:true}
+    server-side-encryption: true
+    lifecycle-days: ${STORAGE_LIFECYCLE_DAYS:2}
+    manage-lifecycle: true
+  ai:
+    external-calls-enabled: ${AI_EXTERNAL_CALLS_ENABLED:false}
+    base-url: ${AI_BASE_URL:}
+    api-key: ${openai_api_key:}
+    embedding-provider: ${EMBEDDING_PROVIDER:disabled}
+    embedding-base-url: ${EMBEDDING_BASE_URL:}
+    embedding-api-key: ${openai_api_key:}
+    embedding-model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    embedding-dimensions: ${EMBEDDING_DIMENSIONS:1536}
+    qdrant-api-key: ${qdrant_api_key:}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO

@@ -1,0 +1,275 @@
+x-backend-environment: &backend-environment
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC
+  APP_PUBLIC_URL: https://${APP_DOMAIN:?APP_DOMAIN is required}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+  MQTT_ENABLED: ${MQTT_ENABLED:-true}
+  MQTT_BROKER_URL: tcp://emqx:1883
+  MQTT_PUBLIC_BROKER_URL: wss://${APP_DOMAIN:?APP_DOMAIN is required}/mqtt
+  MQTT_SERVICE_USERNAME: ${MQTT_SERVICE_USERNAME:-service}
+  REFRESH_COOKIE_SECURE: "true"
+  ADMIN_USERNAMES: ""
+  DEBUG_TEST_OPERATOR_USERNAMES: ""
+  SPEECH_PROVIDER: ${SPEECH_PROVIDER:-disabled}
+  SPEECH_BASE_URL: ${SPEECH_BASE_URL:-}
+  SPEECH_MODEL: ${SPEECH_MODEL:-whisper-1}
+  STORAGE_PROVIDER: ${STORAGE_PROVIDER:-disabled}
+  STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+  STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-xianzhi-speech}
+  STORAGE_PATH_STYLE: ${STORAGE_PATH_STYLE:-true}
+  AI_EXTERNAL_CALLS_ENABLED: ${AI_EXTERNAL_CALLS_ENABLED:-false}
+  AI_BASE_URL: ${AI_BASE_URL:-}
+  AI_MODEL_NAME: ${AI_MODEL_NAME:-rules-v1}
+  AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-disabled}
+  EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_COLLECTION: ${QDRANT_COLLECTION:-xianzhi_recipes}
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+
+x-backend-secrets: &backend-secrets
+  - mysql_app_password
+  - redis_password
+  - jwt_signing_key
+  - identity_tombstone_key
+  - mqtt_service_password
+  - mqtt_internal_token
+  - openai_api_key
+  - storage_access_key
+  - storage_secret_key
+  - qdrant_api_key
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: xianzhi
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      TZ: UTC
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci", "--default-time-zone=+00:00", "--local-infile=OFF"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./infra/mysql/init-users.sh:/docker-entrypoint-initdb.d/20-users.sh:ro
+    secrets: [mysql_root_password, mysql_app_password, mysql_migration_password]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$(cat /run/secrets/mysql_root_password) mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["/bin/sh", "-ec", "exec redis-server --appendonly yes --requirepass \"$$(cat /run/secrets/redis_password)\""]
+    volumes: ["redis_data:/data"]
+    secrets: [redis_password]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+
+  emqx:
+    image: emqx/emqx:5.8.8
+    restart: unless-stopped
+    hostname: emqx
+    entrypoint: ["/bin/sh", "/opt/xianzhi/prod-entrypoint.sh"]
+    environment:
+      EMQX_NODE__NAME: emqx@emqx
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD_USERNAME:-admin}
+    volumes:
+      - ./infra/emqx/base.hocon:/opt/xianzhi/base.hocon.template:ro
+      - ./infra/emqx/prod-entrypoint.sh:/opt/xianzhi/prod-entrypoint.sh:ro
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    secrets: [mqtt_internal_token, emqx_node_cookie, emqx_dashboard_password]
+    expose: ["1883", "8083", "18083"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:18083/status | grep --quiet 'is running'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["export MINIO_ROOT_USER=$$(cat /run/secrets/storage_access_key); export MINIO_ROOT_PASSWORD=$$(cat /run/secrets/storage_secret_key); export MINIO_KMS_SECRET_KEY=xianzhi:$$(cat /run/secrets/minio_kms_key); exec minio server /data --console-address :9001"]
+    volumes: ["minio_data:/data"]
+    secrets: [storage_access_key, storage_secret_key, minio_kms_key]
+    expose: ["9000", "9001"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["export QDRANT__SERVICE__API_KEY=$$(cat /run/secrets/qdrant_api_key); exec /qdrant/qdrant"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+    secrets: [qdrant_api_key]
+    expose: ["6333"]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    profiles: ["tools"]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set storage "$${STORAGE_ENDPOINT}" "$$(cat /run/secrets/storage_access_key)" "$$(cat /run/secrets/storage_secret_key)";
+        mc mb --ignore-existing "storage/$${STORAGE_BUCKET}";
+        mc ilm rule add --expire-days "$${STORAGE_LIFECYCLE_DAYS}" "storage/$${STORAGE_BUCKET}" || true
+    environment:
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-xianzhi-speech}
+      STORAGE_LIFECYCLE_DAYS: ${STORAGE_LIFECYCLE_DAYS:-2}
+    secrets: [storage_access_key, storage_secret_key]
+    networks: [backend]
+    depends_on:
+      minio: { condition: service_healthy }
+
+  migrate:
+    profiles: ["tools"]
+    image: ${API_IMAGE:-xianzhi-api:local}
+    build: { context: ./backend }
+    environment:
+      <<: *backend-environment
+      SPRING_PROFILES_ACTIVE: prod,migration
+      MQTT_ENABLED: "false"
+      STORAGE_PROVIDER: disabled
+      SPEECH_PROVIDER: disabled
+      AI_EXTERNAL_CALLS_ENABLED: "false"
+      AI_VECTOR_ENABLED: "false"
+      EMBEDDING_PROVIDER: disabled
+    secrets:
+      - mysql_migration_password
+    networks: [backend]
+    depends_on:
+      mysql: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+
+  api:
+    image: ${API_IMAGE:-xianzhi-api:local}
+    build: { context: ./backend }
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      SPRING_PROFILES_ACTIVE: prod,api
+    secrets: *backend-secrets
+    expose: ["8080"]
+    networks: [backend]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      emqx: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  worker:
+    image: ${API_IMAGE:-xianzhi-api:local}
+    build: { context: ./backend }
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      SPRING_PROFILES_ACTIVE: prod,worker
+    secrets: *backend-secrets
+    networks: [backend]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      emqx: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
+    stop_grace_period: 40s
+
+  admin-bootstrap:
+    profiles: ["tools"]
+    image: ${API_IMAGE:-xianzhi-api:local}
+    build: { context: ./backend }
+    environment:
+      <<: *backend-environment
+      SPRING_PROFILES_ACTIVE: prod,admin-bootstrap
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:?ADMIN_BOOTSTRAP_EMAIL is required}
+      MQTT_ENABLED: "false"
+    secrets: *backend-secrets
+    networks: [backend]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=128m"]
+
+  web:
+    image: ${WEB_IMAGE:-xianzhi-web:local}
+    build: { context: ./frontend }
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      CADDY_TLS_MODE: ${CADDY_TLS_MODE:?CADDY_TLS_MODE is required}
+    user: "1000:1000"
+    ports: ["80:8080", "443:8443", "443:8443/udp"]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge, backend]
+    depends_on:
+      api: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    cap_drop: ["ALL"]
+
+networks:
+  edge: {}
+  backend:
+    internal: true
+
+volumes:
+  mysql_data: {}
+  redis_data: {}
+  emqx_data: {}
+  emqx_log: {}
+  minio_data: {}
+  qdrant_data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  mysql_root_password: { file: ./secrets/mysql_root_password }
+  mysql_app_password: { file: ./secrets/mysql_app_password }
+  mysql_migration_password: { file: ./secrets/mysql_migration_password }
+  redis_password: { file: ./secrets/redis_password }
+  jwt_signing_key: { file: ./secrets/jwt_signing_key }
+  identity_tombstone_key: { file: ./secrets/identity_tombstone_key }
+  mqtt_service_password: { file: ./secrets/mqtt_service_password }
+  mqtt_internal_token: { file: ./secrets/mqtt_internal_token }
+  emqx_node_cookie: { file: ./secrets/emqx_node_cookie }
+  emqx_dashboard_password: { file: ./secrets/emqx_dashboard_password }
+  openai_api_key: { file: ./secrets/openai_api_key }
+  storage_access_key: { file: ./secrets/storage_access_key }
+  storage_secret_key: { file: ./secrets/storage_secret_key }
+  minio_kms_key: { file: ./secrets/minio_kms_key }
+  qdrant_api_key: { file: ./secrets/qdrant_api_key }

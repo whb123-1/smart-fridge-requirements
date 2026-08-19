@@ -32,7 +32,10 @@ class OpenApiContractTest {
                 "/recipes", "/recipes/{id}", "/recipes/generate", "/recipe-synthesis/match",
                 "/recipes/{id}/scale", "/recipes/{id}/bookmark", "/recipes/{id}/cook",
                 "/admin/recipe-sources", "/admin/recipe-sources/{id}",
-                "/admin/recipe-import-jobs", "/admin/recipe-import-jobs/{id}",
+                "/admin/recipe-import-jobs", "/admin/recipe-import-jobs/{id}", "/admin/recipe-import-jobs/{id}/retry",
+                "/admin/search-index", "/admin/search-index/rebuild", "/admin/users", "/admin/users/{id}",
+                "/admin/users/{id}/audit-logs", "/admin/users/{id}/status", "/admin/users/{id}/role",
+                "/admin/users/{id}/sessions/revoke", "/admin/users/{id}/password-reset", "/admin/users/{id}/restore",
                 "/meals/estimate-nutrition", "/meals", "/analytics/consumption", "/analytics/diet",
                 "/assistant/briefing", "/assistant/conversations",
                 "/assistant/conversations/{conversationId}/messages",
@@ -46,6 +49,6 @@ class OpenApiContractTest {
         Map<String, Object> user = (Map<String, Object>) schemas.get("User");
         assertThat((Iterable<String>) register.get("required")).contains("username");
         assertThat((Iterable<String>) login.get("required")).contains("identifier").doesNotContain("email");
-        assertThat(((Map<String, Object>) user.get("properties"))).containsKey("username");
+        assertThat(((Map<String, Object>) user.get("properties"))).containsKeys("username", "role", "status", "passwordChangeRequired");
     }
 }

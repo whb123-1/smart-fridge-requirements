@@ -90,7 +90,7 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
       MYSQL_USER: ${MYSQL_USER:-xianzhi}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
       JWT_ISSUER: ${JWT_ISSUER:-xianzhi-api}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-PT15M}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-P30D}
@@ -140,7 +140,7 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
       MYSQL_USER: ${MYSQL_USER:-xianzhi}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
       JWT_ISSUER: ${JWT_ISSUER:-xianzhi-api}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-PT15M}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-P30D}
@@ -177,7 +177,7 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
       MYSQL_USER: ${MYSQL_USER:-xianzhi}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
       MQTT_ENABLED: "true"
       MQTT_BROKER_URL: tcp://emqx:1883
       MQTT_SIMULATOR_USERNAME: ${MQTT_SIMULATOR_USERNAME:-simulator}

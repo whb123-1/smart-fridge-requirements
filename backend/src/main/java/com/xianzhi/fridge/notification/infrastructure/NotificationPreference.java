@@ -1,5 +1,6 @@
 package com.xianzhi.fridge.notification.infrastructure;
 
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import jakarta.persistence.*;
 import java.sql.Types;
 import java.time.Instant;

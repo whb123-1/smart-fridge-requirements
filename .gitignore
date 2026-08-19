@@ -1,9 +1,14 @@
 node_modules/
 dist/
 .npm-cache/
+frontend/test-results/
+frontend/playwright-report/
 work/
+.tmp/
 *.log
 .env
+.env.prod
+secrets/
 backend/target/
 backend/.m2/
 backend/.mvn/wrapper/apache-maven-*/

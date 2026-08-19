@@ -3,7 +3,7 @@ package com.xianzhi.fridge.notification.application;
 import com.xianzhi.fridge.identity.infrastructure.AppUserRepository;
 import com.xianzhi.fridge.inventory.application.InventoryService;
 import com.xianzhi.fridge.inventory.domain.AssessmentStatus;
-import com.xianzhi.fridge.notification.infrastructure.NotificationType;
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import org.springframework.stereotype.Service;
 
 @Service

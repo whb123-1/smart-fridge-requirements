@@ -3,7 +3,7 @@ package com.xianzhi.fridge.notification.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xianzhi.fridge.notification.infrastructure.NotificationPreference;
-import com.xianzhi.fridge.notification.infrastructure.NotificationType;
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.UUID;

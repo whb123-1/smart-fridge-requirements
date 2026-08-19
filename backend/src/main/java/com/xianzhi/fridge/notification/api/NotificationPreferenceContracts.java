@@ -1,6 +1,6 @@
 package com.xianzhi.fridge.notification.api;
 
-import com.xianzhi.fridge.notification.infrastructure.NotificationType;
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -10,8 +10,8 @@ import java.util.List;
 
 public final class NotificationPreferenceContracts {
     private NotificationPreferenceContracts() { }
-    public record Entry(@NotNull NotificationType type,@NotNull Boolean inAppEnabled,@NotNull Boolean emailEnabled,
+    public record Entry(@NotNull NotificationType type,@NotNull Boolean inAppEnabled,@Deprecated @NotNull Boolean emailEnabled,
                         LocalTime quietStart,LocalTime quietEnd,@Pattern(regexp="[A-Za-z_]+/[A-Za-z_]+") String timezone) { }
     public record UpdateRequest(@NotEmpty List<@Valid Entry> preferences) { }
-    public record View(NotificationType type,boolean inAppEnabled,boolean emailEnabled,LocalTime quietStart,LocalTime quietEnd,String timezone) { }
+    public record View(NotificationType type,boolean inAppEnabled,@Deprecated boolean emailEnabled,LocalTime quietStart,LocalTime quietEnd,String timezone) { }
 }

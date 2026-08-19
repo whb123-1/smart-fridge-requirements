@@ -6,7 +6,7 @@ import com.xianzhi.fridge.notification.infrastructure.NotificationRepository;
 import com.xianzhi.fridge.notification.infrastructure.NotificationPreferenceRepository;
 import com.xianzhi.fridge.notification.infrastructure.NotificationDelivery;
 import com.xianzhi.fridge.notification.infrastructure.NotificationDeliveryRepository;
-import com.xianzhi.fridge.notification.infrastructure.NotificationType;
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import com.xianzhi.fridge.shared.application.IdempotencyService;
 import com.xianzhi.fridge.shared.domain.UuidV7;
 import com.xianzhi.fridge.shared.web.ApiException;
@@ -71,10 +71,9 @@ public class NotificationService {
     }
     private Notification register(Notification notification, NotificationType type) {
         var preference=preferences.findByUserIdAndType(notification.getUserId(),type).orElse(null);
-        boolean inApp=preference==null||preference.isInAppEnabled(); boolean email=preference!=null&&preference.isEmailEnabled();
+        boolean inApp=preference==null||preference.isInAppEnabled();
         notification.setInAppVisible(inApp); Notification saved=notifications.save(notification);
         deliveries.save(new NotificationDelivery(UuidV7.next(),saved.getId(),"IN_APP",inApp?"DELIVERED":"SKIPPED",clock.instant()));
-        deliveries.save(new NotificationDelivery(UuidV7.next(),saved.getId(),"EMAIL",email?"PENDING":"SKIPPED",clock.instant()));
         return saved;
     }
     private NotificationContracts.View view(Notification value) {

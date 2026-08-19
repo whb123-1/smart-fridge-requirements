@@ -1,0 +1,10 @@
+services:
+  prometheus:
+    volumes: !override
+      - ./infra/monitoring/prometheus.desktop.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+  node-exporter:
+    command: ["--collector.textfile.directory=/textfile", "--no-collector.diskstats"]
+    volumes: !override
+      - backup_metrics:/textfile:ro

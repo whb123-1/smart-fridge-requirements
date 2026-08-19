@@ -1,5 +1,6 @@
 package com.xianzhi.fridge.notification.application;
 
+import com.xianzhi.fridge.notification.domain.NotificationType;
 import com.xianzhi.fridge.identity.infrastructure.AppUserRepository;
 import com.xianzhi.fridge.notification.infrastructure.*;
 import java.time.Clock;

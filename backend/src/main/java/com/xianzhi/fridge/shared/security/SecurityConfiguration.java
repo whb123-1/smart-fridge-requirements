@@ -21,14 +21,20 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    @Profile("!worker & !simulator")
+    @Profile("!worker & !simulator & !admin-bootstrap & !migration")
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter,
+                                            PasswordChangeRequiredFilter passwordChangeFilter,
+                                            SameOriginFilter sameOriginFilter,
                                             SecurityErrorWriter errors) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
+                .headers(headers -> headers
+                        .contentTypeOptions(contentType -> {})
+                        .frameOptions(frame -> frame.deny())
+                        .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/auth/**", "/internal/mqtt/**", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                        .requestMatchers("/api/v1/auth/**", "/internal/mqtt/**", "/actuator/health/**", "/actuator/prometheus", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) ->
@@ -36,6 +42,8 @@ public class SecurityConfiguration {
                         .accessDeniedHandler((request, response, exception) ->
                                 errors.write(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "Access is denied")))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(sameOriginFilter, JwtAuthenticationFilter.class)
+                .addFilterAfter(passwordChangeFilter, JwtAuthenticationFilter.class)
                 .build();
     }
 }

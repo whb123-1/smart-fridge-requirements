@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: 鲜知智慧冰箱 API
-  version: 1.0.0
-  description: 阶段 0-3 的账户、冰箱、库存采购、MQTT 环境监测与站内通知契约。
+  version: 1.1.0
+  description: 鲜知智慧冰箱生产 API，包含账户生命周期、管理员、菜谱运维、库存、MQTT 环境监测与站内通知契约。
 servers:
   - url: /api/v1
 security:
@@ -429,6 +429,13 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RecipeSourceRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
   /admin/recipe-import-jobs:
+    get:
+      operationId: listRecipeImportJobs
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [QUEUED, PROCESSING, COMPLETED, COMPLETED_WITH_ERRORS, FAILED] } }
+        - { in: query, name: page, schema: { type: integer, minimum: 0, default: 0 } }
+        - { in: query, name: size, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
     post:
       operationId: createRecipeImportJob
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
@@ -437,6 +444,78 @@ paths:
   /admin/recipe-import-jobs/{id}:
     parameters: [{ $ref: '#/components/parameters/ResourceId' }]
     get: { operationId: getRecipeImportJob, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } } }
+  /admin/recipe-import-jobs/{id}/retry:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: retryRecipeImportJob
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '202': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /admin/search-index:
+    get:
+      operationId: getRecipeSearchIndexStatus
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/search-index/rebuild:
+    post:
+      operationId: rebuildRecipeSearchIndex
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '202': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      parameters:
+        - { in: query, name: query, schema: { type: string } }
+        - { in: query, name: role, schema: { type: string, enum: [USER, ADMIN] } }
+        - { in: query, name: status, schema: { type: string, enum: [ACTIVE, DISABLED, DELETED] } }
+        - { in: query, name: page, schema: { type: integer, minimum: 0, default: 0 } }
+        - { in: query, name: size, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/users/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get: { operationId: getAdminUser, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '404': { $ref: '#/components/responses/GenericError' } } }
+    delete:
+      operationId: deleteAdminUser
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /admin/users/{id}/audit-logs:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    get:
+      operationId: listAdminUserAuditLogs
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 0, default: 0 } }
+        - { in: query, name: size, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } }
+  /admin/users/{id}/status:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateAdminUserStatus
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdminStatusRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /admin/users/{id}/role:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateAdminUserRole
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdminRoleRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /admin/users/{id}/sessions/revoke:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post: { operationId: revokeAdminUserSessions, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } } }
+  /admin/users/{id}/password-reset:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: resetAdminUserPassword
+      description: 返回一次性临时密码；服务端仅保存 Argon2id 哈希，密码 24 小时过期并强制修改。
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '200':
+          description: 临时密码，仅本响应显示一次
+          content: { application/json: { schema: { $ref: '#/components/schemas/TemporaryPasswordEnvelope' } } }
+        '403': { $ref: '#/components/responses/GenericError' }
+        '409': { $ref: '#/components/responses/ConflictError' }
+  /admin/users/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post: { operationId: restoreAdminUser, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } } }
   /meals/estimate-nutrition:
     post:
       operationId: estimateMealNutrition
@@ -619,7 +698,7 @@ components:
         newPassword: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
     User:
       type: object
-      required: [id, username, email, displayName, timezone, temperatureUnit]
+      required: [id, username, email, displayName, timezone, temperatureUnit, role, status, passwordChangeRequired]
       properties:
         id: { type: string, format: uuid }
         username: { type: string, pattern: '^[a-z0-9_]{3,32}$' }
@@ -627,6 +706,9 @@ components:
         displayName: { type: string }
         timezone: { type: string }
         temperatureUnit: { type: string, enum: [C, F] }
+        role: { type: string, enum: [USER, ADMIN] }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+        passwordChangeRequired: { type: boolean }
     UserEnvelope:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -877,7 +959,10 @@ components:
             properties:
               type: { type: string, enum: [EXPIRY_SOON, EXPIRED, LOW_STOCK, ENVIRONMENT_ALERT] }
               inAppEnabled: { type: boolean }
-              emailEnabled: { type: boolean }
+              emailEnabled:
+                type: boolean
+                deprecated: true
+                description: 已弃用；服务端固定返回并保存为 false，仅支持站内通知。
               quietStart: { type: string, format: time }
               quietEnd: { type: string, format: time }
               timezone: { type: string }
@@ -969,6 +1054,29 @@ components:
       properties:
         sourceId: { type: string, format: uuid }
         payload: { type: object, additionalProperties: true }
+    AdminStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+    AdminRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [USER, ADMIN] }
+    TemporaryPassword:
+      type: object
+      required: [userId, temporaryPassword, expiresAt]
+      properties:
+        userId: { type: string, format: uuid }
+        temporaryPassword: { type: string, writeOnly: true, minLength: 24, maxLength: 24 }
+        expiresAt: { type: string, format: date-time }
+    TemporaryPasswordEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/TemporaryPassword' }
     CreateAssistantConversationRequest:
       type: object
       properties:

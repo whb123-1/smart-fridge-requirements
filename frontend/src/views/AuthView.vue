@@ -30,7 +30,7 @@ async function submit() {
           displayName: form.displayName,
         })
       : await login({ identifier: form.identifier, password: form.password })
-    await router.replace(authenticatedLanding(result.onboardingRequired))
+    await router.replace(authenticatedLanding(result.onboardingRequired, result.user))
   } catch (exception) {
     error.value = exception.code === 'INVALID_CREDENTIALS'
       ? '邮箱/用户名或密码不正确'

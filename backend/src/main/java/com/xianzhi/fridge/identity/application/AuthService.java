@@ -7,6 +7,7 @@ import com.xianzhi.fridge.identity.infrastructure.AppUser;
 import com.xianzhi.fridge.identity.infrastructure.AppUserRepository;
 import com.xianzhi.fridge.identity.infrastructure.RefreshSession;
 import com.xianzhi.fridge.identity.infrastructure.RefreshSessionRepository;
+import com.xianzhi.fridge.identity.infrastructure.IdentityTombstoneRepository;
 import com.xianzhi.fridge.shared.application.AuditService;
 import com.xianzhi.fridge.shared.application.RateLimiter;
 import com.xianzhi.fridge.shared.config.AppProperties;
@@ -38,10 +39,13 @@ public class AuthService {
     private final AppProperties properties;
     private final RateLimiter rateLimiter;
     private final AuditService audit;
+    private final IdentityTombstoneRepository tombstones;
+    private final IdentityProtector identityProtector;
     private final Clock clock = Clock.systemUTC();
 
     public AuthService(AppUserRepository users, RefreshSessionRepository refreshSessions, PasswordEncoder passwordEncoder,
-                       JwtService jwtService, AppProperties properties, RateLimiter rateLimiter, AuditService audit) {
+                       JwtService jwtService, AppProperties properties, RateLimiter rateLimiter, AuditService audit,
+                       IdentityTombstoneRepository tombstones, IdentityProtector identityProtector) {
         this.users = users;
         this.refreshSessions = refreshSessions;
         this.passwordEncoder = passwordEncoder;
@@ -49,6 +53,8 @@ public class AuthService {
         this.properties = properties;
         this.rateLimiter = rateLimiter;
         this.audit = audit;
+        this.tombstones = tombstones;
+        this.identityProtector = identityProtector;
     }
 
     @Transactional
@@ -58,7 +64,11 @@ public class AuthService {
         if (users.findByEmailAndDeletedAtIsNull(email).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "An account already uses this email");
         }
+        if (tombstones.existsByEmailHmac(identityProtector.hmac(email))) {
+            throw new ApiException(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "An account already uses this email");
+        }
         if (users.findByUsername(username).isPresent()) throw usernameConflict();
+        if (tombstones.existsByUsernameHmac(identityProtector.hmac(username))) throw usernameConflict();
         AppUser user = new AppUser(UuidV7.next(), username, email, passwordEncoder.encode(request.password()),
                 request.displayName().trim(), properties.getTimezone());
         try {
@@ -84,11 +94,13 @@ public class AuthService {
         AppUser user = identifier.contains("@")
                 ? users.findByEmailAndDeletedAtIsNull(identifier).orElse(null)
                 : users.findByUsernameAndDeletedAtIsNull(identifier).orElse(null);
-        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        boolean passwordMatches = user != null && passwordEncoder.matches(request.password(), user.getPasswordHash());
+        if (user == null || !passwordMatches || !user.isAvailable() || user.temporaryPasswordExpiredAt(clock.instant())) {
             audit.record(user == null ? null : user.getId(), "AUTH_LOGIN_FAILED");
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
                     "Email/username or password is incorrect");
         }
+        user.recordLogin(clock.instant());
         audit.record(user.getId(), "AUTH_LOGIN_SUCCEEDED");
         return issue(user, client, UuidV7.next());
     }
@@ -108,6 +120,10 @@ public class AuthService {
         }
         AppUser user = users.lockActiveById(previous.getUserId())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "User is unavailable"));
+        if (!user.isAvailable() || user.temporaryPasswordExpiredAt(now)) {
+            revokeFamily(previous.getFamilyId(), null);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "User is unavailable");
+        }
         SessionIssue next = issue(user, client, previous.getFamilyId());
         previous.revoke(now, next.sessionId());
         audit.record(user.getId(), "AUTH_REFRESHED");
@@ -125,7 +141,7 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthResponses.User me(UUID userId) {
-        return toUser(users.findById(userId).filter(user -> user.getDeletedAt() == null)
+        return toUser(users.findAvailableById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "User is unavailable")));
     }
 
@@ -135,6 +151,9 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "User is unavailable"));
         String username = normalizeUsername(request.username());
         if (users.findByUsername(username).filter(existing -> !existing.getId().equals(userId)).isPresent()) {
+            throw usernameConflict();
+        }
+        if (!username.equals(user.getUsername()) && tombstones.existsByUsernameHmac(identityProtector.hmac(username))) {
             throw usernameConflict();
         }
         try {
@@ -173,7 +192,7 @@ public class AuthService {
         UUID sessionId = UuidV7.next();
         refreshSessions.save(new RefreshSession(sessionId, user.getId(), Hashing.sha256(rawRefreshToken), familyId,
                 clock.instant().plus(properties.getSecurity().getRefreshTtl()), Hashing.sha256(client.ipAddress()), client.userAgent()));
-        JwtService.AccessToken accessToken = jwtService.issue(user.getId());
+        JwtService.AccessToken accessToken = jwtService.issue(user.getId(), user.getSessionVersion());
         return new SessionIssue(sessionId, rawRefreshToken,
                 new AuthResponses.Session(accessToken.value(), accessToken.expiresAt(), toUser(user), user.onboardingRequired()));
     }
@@ -191,9 +210,10 @@ public class AuthService {
     private static String normalizeEmail(String value) { return value.trim().toLowerCase(Locale.ROOT); }
     private static String normalizeUsername(String value) { return value.trim().toLowerCase(Locale.ROOT); }
     private static String normalizeIdentifier(String value) { return value.trim().toLowerCase(Locale.ROOT); }
-    private static AuthResponses.User toUser(AppUser user) {
+    public static AuthResponses.User toUser(AppUser user) {
         return new AuthResponses.User(user.getId(), user.getUsername(), user.getEmail(), user.getDisplayName(),
-                user.getTimezone(), user.getTemperatureUnit());
+                user.getTimezone(), user.getTemperatureUnit(), user.getRole(), user.getStatus(),
+                user.isPasswordChangeRequired());
     }
 
     private static ApiException usernameConflict() {

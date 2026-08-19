@@ -163,4 +163,18 @@ export const api = {
   sendAssistantMessage: (conversationId, payload) => write(`/api/v1/assistant/conversations/${conversationId}/messages`, 'POST', payload, true),
   confirmAssistantProposal: id => write(`/api/v1/assistant/action-proposals/${id}/confirm`, 'POST', undefined, true),
   dismissAssistantProposal: id => write(`/api/v1/assistant/action-proposals/${id}/dismiss`, 'POST', undefined, true),
+
+  listAdminUsers: filters => request(`/api/v1/admin/users${queryString(filters || {})}`),
+  getAdminUser: id => request(`/api/v1/admin/users/${id}`),
+  getAdminUserAudit: (id, filters = {}) => request(`/api/v1/admin/users/${id}/audit-logs${queryString(filters)}`),
+  setAdminUserStatus: (id, status) => write(`/api/v1/admin/users/${id}/status`, 'PATCH', { status }, true),
+  setAdminUserRole: (id, role) => write(`/api/v1/admin/users/${id}/role`, 'PATCH', { role }, true),
+  revokeAdminUserSessions: id => write(`/api/v1/admin/users/${id}/sessions/revoke`, 'POST', undefined, true),
+  resetAdminUserPassword: id => write(`/api/v1/admin/users/${id}/password-reset`, 'POST', undefined, true),
+  deleteAdminUser: id => write(`/api/v1/admin/users/${id}`, 'DELETE', undefined, true),
+  restoreAdminUser: id => write(`/api/v1/admin/users/${id}/restore`, 'POST', undefined, true),
+  listRecipeImportJobs: filters => request(`/api/v1/admin/recipe-import-jobs${queryString(filters || {})}`),
+  retryRecipeImportJob: id => write(`/api/v1/admin/recipe-import-jobs/${id}/retry`, 'POST', undefined, true),
+  getSearchIndex: () => request('/api/v1/admin/search-index'),
+  rebuildSearchIndex: () => write('/api/v1/admin/search-index/rebuild', 'POST', undefined, true),
 }
