@@ -36,6 +36,13 @@ public class InventoryController {
         return ApiEnvelope.ok(inventory.listItems(principal.userId(), fridgeId, zoneId, category, status, query));
     }
 
+    @GetMapping("/inventory/transactions")
+    public ApiEnvelope<List<InventoryContracts.TransactionView>> transactions(@AuthenticationPrincipal UserPrincipal principal,
+                                                                                @RequestParam UUID fridgeId,
+                                                                                @RequestParam(defaultValue = "20") int limit) {
+        return ApiEnvelope.ok(inventory.listTransactions(principal.userId(), fridgeId, limit));
+    }
+
     @PostMapping("/inventory/items")
     public ApiEnvelope<InventoryContracts.ItemView> createItem(@AuthenticationPrincipal UserPrincipal principal,
                                                                 @RequestHeader(value = "Idempotency-Key", required = false) String key,

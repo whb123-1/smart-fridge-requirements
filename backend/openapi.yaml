@@ -164,6 +164,13 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/UnauthorizedError' }
         '409': { $ref: '#/components/responses/ConflictError' }
+  /inventory/transactions:
+    get:
+      operationId: listInventoryTransactions
+      parameters:
+        - { in: query, name: fridgeId, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
   /inventory/items/{id}:
     parameters: [{ $ref: '#/components/parameters/ResourceId' }]
     patch:
@@ -265,12 +272,27 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDeviceRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '400': { $ref: '#/components/responses/ValidationError' }, '409': { $ref: '#/components/responses/ConflictError' } }
+  /zones/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateZone
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateZoneRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '400': { $ref: '#/components/responses/ValidationError' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
   /zones/{id}/sensors:
     parameters: [{ $ref: '#/components/parameters/ResourceId' }]
     get:
       operationId: listZoneSensorSlots
       description: Returns both PENDING_BIND logical slots and BOUND sensors for the current user's zone.
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /zones/{id}/sensors/initialize:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    post:
+      operationId: initializeSensor
+      description: Atomically creates a physical MQTT device, generates one-time credentials, and binds the selected logical sensor slot.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/InitializeSensorRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '400': { $ref: '#/components/responses/ValidationError' }, '404': { $ref: '#/components/responses/GenericError' }, '409': { $ref: '#/components/responses/ConflictError' } }
   /devices/{id}:
     parameters: [{ $ref: '#/components/parameters/ResourceId' }]
     patch:
@@ -528,6 +550,12 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateMealRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /meals/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    delete:
+      operationId: deleteMeal
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
   /analytics/consumption:
     get: { operationId: getConsumptionAnalytics, parameters: [{ in: query, name: period, schema: { type: string, enum: [week, month] } }], responses: { '200': { $ref: '#/components/responses/GenericSuccess' } } }
   /analytics/diet:
@@ -854,6 +882,13 @@ components:
         packageExpiresAt: { type: string, format: date-time, nullable: true }
         shelfLifeDays: { type: integer, minimum: 0 }
         remindAt: { type: string, format: date-time, nullable: true }
+    UpdateZoneRequest:
+      type: object
+      required: [name, targetTemperatureC, targetHumidityPct]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 48 }
+        targetTemperatureC: { type: number, minimum: -40, maximum: 40 }
+        targetHumidityPct: { type: number, minimum: 0, maximum: 100 }
     TransactionRequest:
       type: object
       required: [type, quantity]
@@ -902,6 +937,12 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 96 }
         type: { type: string, enum: [PHYSICAL, VIRTUAL] }
+    InitializeSensorRequest:
+      type: object
+      required: [slotId, name]
+      properties:
+        slotId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 72 }
     UpdateDeviceRequest:
       type: object
       properties:

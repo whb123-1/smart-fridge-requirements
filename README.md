@@ -12,9 +12,11 @@
 
 项目不实现家庭共享、OAuth、邮件或 Web Push；通知只使用站内渠道。
 
+AI 外部调用默认关闭。需要启用 DeepSeek 聊天、OpenAI 语音转写和 Embedding 时，请在本机运行 `.\infra\scripts\set-ai-provider-secrets.ps1 -EnableProduction`，按提示输入两把 API Key；密钥只保存到 `secrets/`，不会写入配置文件或日志。
+
 ## 已验证交付基线
 
-2026-08-19 的最终门禁结果：后端 57/57、前端 25/25、Playwright 5 passed/3 skipped；V001→V013 空库及 V002→V013 原地升级通过；API/Web/Backup 三张镜像的 OS 与应用二进制均为 0 High/Critical。50 VU 下读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%；100 个 MQTT 设备 QoS 1 的 Broker 确认与四层落库计数均为 100。
+2026-08-19 的最终门禁结果：后端 63/63、前端 25/25、Playwright 5 passed/3 skipped；V001→V013 空库及 V002→V013 原地升级通过；API/Web/Backup 三张镜像的 OS 与应用二进制均为 0 High/Critical。50 VU 下读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%；100 个 MQTT 设备 QoS 1 的 Broker 确认与四层落库计数均为 100。
 
 本机生产 Profile 已通过内部 CA 的 HTTPS/WSS、管理员全生命周期、Worker、S3、备份和隔离恢复演练。真实公网发布仍必须提供实际域名、ACME 邮箱和生产 Secret；OpenAI/Embedding 等可选供应商只有启用并完成真实调用验收后，才算该适配器生产正常。Windows Docker Desktop 不替代 Linux 主机的 cAdvisor/宿主磁盘指标验收。详见 [项目进展](progress.md) 和 [生产运行手册](docs/production-runbook.md)。
 

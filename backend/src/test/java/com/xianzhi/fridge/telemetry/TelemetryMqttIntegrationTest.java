@@ -104,23 +104,15 @@ class TelemetryMqttIntegrationTest {
                 .andExpect(status().isOk()).andReturn();
         String sensorId = data(slots).get(0).path("id").asText();
 
-        MvcResult created = mvc.perform(post("/api/v1/zones/{id}/devices", zoneId)
+        MvcResult created = mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
                         .header("Authorization", authorization)
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"MQTT test device\",\"type\":\"VIRTUAL\"}"))
+                        .content("{\"slotId\":\"" + sensorId + "\",\"name\":\"Temperature\"}"))
                 .andExpect(status().isOk()).andReturn();
         JsonNode device = data(created);
         String deviceId = device.path("id").asText();
         JsonNode credential = device.path("credential");
-
-        mvc.perform(post("/api/v1/devices/{id}/sensors", deviceId)
-                        .header("Authorization", authorization)
-                        .header("Idempotency-Key", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"slotId\":\"" + sensorId
-                                + "\",\"name\":\"Temperature\",\"externalKey\":\"temp-1\"}"))
-                .andExpect(status().isOk());
 
         UUID messageId = UUID.randomUUID();
         String payload = "{\"messageId\":\"" + messageId + "\",\"observedAt\":\"" + Instant.now()

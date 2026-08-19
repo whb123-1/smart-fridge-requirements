@@ -84,4 +84,36 @@ class ExternalProviderClientTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("HTTP(S)");
     }
+
+    @Test
+    void doesNotExposeProviderResponseOrApiKeyInErrors() {
+        String secret = "provider-secret-that-must-not-leak";
+        server.stubFor(post("/unauthorized").willReturn(aResponse().withStatus(401)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"error\":\"rejected " + secret + "\"}")));
+
+        assertThatThrownBy(() -> client.postJson("redacted-provider", server.baseUrl() + "/unauthorized", secret,
+                mapper.createObjectNode(), Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("redacted-provider returned HTTP 401")
+                .hasMessageNotContaining(secret)
+                .hasMessageNotContaining("rejected");
+    }
+
+    @Test
+    void opensCircuitAfterRepeatedProviderFailures() {
+        server.stubFor(post("/circuit").willReturn(aResponse().withStatus(503)));
+        for (int call = 0; call < 5; call++) {
+            assertThatThrownBy(() -> client.postJson("circuit-provider", server.baseUrl() + "/circuit", "",
+                    mapper.createObjectNode(), Duration.ofSeconds(1)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("HTTP 503");
+        }
+
+        assertThatThrownBy(() -> client.postJson("circuit-provider", server.baseUrl() + "/circuit", "",
+                mapper.createObjectNode(), Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("circuit-provider circuit is open");
+        server.verify(15, postRequestedFor(urlEqualTo("/circuit")));
+    }
 }

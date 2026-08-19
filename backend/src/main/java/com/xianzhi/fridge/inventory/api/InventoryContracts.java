@@ -117,4 +117,7 @@ public final class InventoryContracts {
 
     public record CatalogSuggestion(UUID id, String name, FoodCategory category, String defaultUnit) { }
     public record WeightEstimate(UUID id, UUID catalogId, String label, BigDecimal referenceGrams, String unit, String source) { }
+    public record TransactionView(UUID id, UUID batchId, String itemName, TransactionType type,
+                                  BigDecimal beforeQuantity, BigDecimal afterQuantity, BigDecimal quantityDelta,
+                                  String unit, String sourceType, Instant createdAt) { }
 }

@@ -15,6 +15,7 @@ public final class DeviceContracts {
     private DeviceContracts() { }
     public record CreateDeviceRequest(@NotBlank @Size(max = 96) String name, @NotNull DeviceType type) { }
     public record UpdateDeviceRequest(@Size(max = 96) String name, DeviceStatus status) { }
+    public record InitializeSensorRequest(@NotNull UUID slotId, @NotBlank @Size(max = 72) String name) { }
     public record BindSensorRequest(@NotNull UUID slotId, @NotBlank @Size(max = 96) String name,
                                     @NotBlank @Size(max = 96) String externalKey) { }
     public record MqttCredential(String brokerUrl, String clientId, String username, String password,

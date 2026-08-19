@@ -31,6 +31,12 @@ public class DeviceController {
     public ApiEnvelope<List<DeviceContracts.SensorView>> zoneSensors(@AuthenticationPrincipal UserPrincipal principal, @PathVariable UUID id) {
         return ApiEnvelope.ok(devices.zoneSensors(principal.userId(), id));
     }
+    @PostMapping("/zones/{id}/sensors/initialize")
+    public ApiEnvelope<DeviceContracts.DeviceView> initializeSensor(@AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable UUID id, @RequestHeader(value = "Idempotency-Key", required = false) String key,
+            @Valid @RequestBody DeviceContracts.InitializeSensorRequest request) {
+        return ApiEnvelope.ok(devices.initializeSensor(principal.userId(), id, key, request));
+    }
     @PostMapping("/zones/{id}/devices")
     public ApiEnvelope<DeviceContracts.DeviceView> create(@AuthenticationPrincipal UserPrincipal principal, @PathVariable UUID id,
             @RequestHeader(value = "Idempotency-Key", required = false) String key,

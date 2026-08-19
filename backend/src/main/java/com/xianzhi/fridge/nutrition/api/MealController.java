@@ -14,4 +14,5 @@ public class MealController {
     @PostMapping("/estimate-nutrition") public ApiEnvelope<MealContracts.NutritionView> estimate(@Valid @RequestBody MealContracts.EstimateRequest r){return ApiEnvelope.ok(meals.estimate(r));}
     @GetMapping public ApiEnvelope<List<MealContracts.MealView>> list(@AuthenticationPrincipal UserPrincipal p){return ApiEnvelope.ok(meals.list(p.userId()));}
     @PostMapping public ApiEnvelope<MealContracts.MealView> create(@AuthenticationPrincipal UserPrincipal p,@RequestHeader("Idempotency-Key") String key,@Valid @RequestBody MealContracts.CreateRequest r){return ApiEnvelope.ok(meals.create(p.userId(),key,r));}
+    @DeleteMapping("/{id}") public ApiEnvelope<Void> delete(@AuthenticationPrincipal UserPrincipal p,@PathVariable java.util.UUID id,@RequestHeader("Idempotency-Key") String key){meals.delete(p.userId(),id,key);return ApiEnvelope.ok(null);}
 }

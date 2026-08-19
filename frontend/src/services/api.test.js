@@ -71,6 +71,24 @@ test('environment reads are authenticated and device/notification writes are ide
   assert.match(calls[3].options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/)
 })
 
+test('sensor initialization uses one caller-owned idempotency key for atomic MQTT provisioning', async t => {
+  const calls = []
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return response({ id: 'device-id', sensors: [{ id: 'sensor-id' }], credential: { topic: 'telemetry' } })
+  }
+
+  const key = '0870a1ec-e68b-4c25-89b0-e677f918b2d1'
+  await api.initializeSensor('zone-id', { slotId: 'slot-id', name: '冷藏温度探头' }, key)
+
+  assert.equal(calls[0].url, '/api/v1/zones/zone-id/sensors/initialize')
+  assert.equal(calls[0].options.method, 'POST')
+  assert.equal(calls[0].options.headers['Idempotency-Key'], key)
+  assert.deepEqual(JSON.parse(calls[0].options.body), { slotId: 'slot-id', name: '冷藏温度探头' })
+})
+
 test('recipe, meal, preference and assistant flows use v1 APIs with idempotent writes', async t => {
   const calls = []
   const previousFetch = globalThis.fetch

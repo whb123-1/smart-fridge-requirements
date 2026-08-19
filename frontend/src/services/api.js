@@ -90,10 +90,14 @@ export const api = {
   }),
   getFridges: () => request('/api/v1/fridges'),
 
+  updateZone: (id, payload) => write(`/api/v1/zones/${id}`, 'PATCH', payload, true),
   getEnvironment: fridgeId => request(`/api/v1/fridges/${fridgeId}/environment`),
   getZoneReadings: (zoneId, filters = {}) => request(`/api/v1/zones/${zoneId}/readings${queryString(filters)}`),
   getZoneDevices: zoneId => request(`/api/v1/zones/${zoneId}/devices`),
   getZoneSensors: zoneId => request(`/api/v1/zones/${zoneId}/sensors`),
+  initializeSensor: (zoneId, payload, key) => request(`/api/v1/zones/${zoneId}/sensors/initialize`, {
+    method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload),
+  }),
   createDevice: (zoneId, payload) => write(`/api/v1/zones/${zoneId}/devices`, 'POST', payload, true),
   updateDevice: (id, payload) => write(`/api/v1/devices/${id}`, 'PATCH', payload, true),
   deleteDevice: id => write(`/api/v1/devices/${id}`, 'DELETE', undefined, true),
@@ -109,6 +113,7 @@ export const api = {
   deleteDebugTelemetryScenario: id => write(`/api/v1/debug/telemetry/scenarios/${id}`, 'DELETE', undefined, true),
 
   listInventoryItems: filters => request(`/api/v1/inventory/items${queryString(filters || {})}`),
+  listInventoryTransactions: filters => request(`/api/v1/inventory/transactions${queryString(filters || {})}`),
   createInventoryItem: payload => write('/api/v1/inventory/items', 'POST', payload, true),
   updateInventoryItem: (id, payload) => write(`/api/v1/inventory/items/${id}`, 'PATCH', payload, true),
   deleteInventoryItem: id => write(`/api/v1/inventory/items/${id}`, 'DELETE', undefined, true),
@@ -155,6 +160,7 @@ export const api = {
   estimateMealNutrition: payload => write('/api/v1/meals/estimate-nutrition', 'POST', payload),
   listMeals: () => request('/api/v1/meals'),
   createMeal: payload => write('/api/v1/meals', 'POST', payload, true),
+  deleteMeal: id => write(`/api/v1/meals/${id}`, 'DELETE', undefined, true),
   getConsumptionAnalytics: period => request(`/api/v1/analytics/consumption${queryString({ period })}`),
   getDietAnalytics: date => request(`/api/v1/analytics/diet${queryString({ date })}`),
 

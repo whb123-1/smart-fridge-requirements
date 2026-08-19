@@ -2,6 +2,7 @@ package com.xianzhi.fridge.fridge.application;
 
 import com.xianzhi.fridge.fridge.api.DeviceContracts;
 import com.xianzhi.fridge.fridge.domain.DeviceStatus;
+import com.xianzhi.fridge.fridge.domain.DeviceType;
 import com.xianzhi.fridge.fridge.infrastructure.Device;
 import com.xianzhi.fridge.fridge.infrastructure.DeviceRepository;
 import com.xianzhi.fridge.fridge.infrastructure.Fridge;
@@ -66,6 +67,38 @@ public class DeviceService {
     public List<DeviceContracts.SensorView> zoneSensors(UUID userId, UUID zoneId) {
         ownedZone(userId, zoneId);
         return sensors.findByZoneIdAndEnabledTrueOrderBySlotIndexAsc(zoneId).stream().map(this::sensorView).toList();
+    }
+
+    @Transactional
+    public DeviceContracts.DeviceView initializeSensor(UUID userId, UUID zoneId, String key,
+            DeviceContracts.InitializeSensorRequest request) {
+        String path = "/api/v1/zones/" + zoneId + "/sensors/initialize";
+        DeviceContracts.DeviceView replay = idempotency.replay(userId, key, "POST", path, request,
+                DeviceContracts.DeviceView.class);
+        if (replay != null) return replay;
+        FridgeZone zone = ownedZone(userId, zoneId);
+        SensorSlot slot = sensors.findByIdForUpdate(request.slotId())
+                .orElseThrow(() -> notFound("SENSOR_SLOT_NOT_FOUND", "Sensor slot not found"));
+        if (!zoneId.equals(slot.getZoneId())) throw notFound("SENSOR_SLOT_NOT_FOUND", "Sensor slot not found");
+        if (!"PENDING_BIND".equals(slot.getBindingStatus())) {
+            throw conflict("SENSOR_SLOT_ALREADY_BOUND", "Sensor slot is already bound");
+        }
+
+        String sensorName = request.name().trim();
+        UUID deviceId = UuidV7.next();
+        String secret = secret();
+        Device device = devices.save(new Device(deviceId, userId, zoneId, sensorName + " MQTT 设备", DeviceType.PHYSICAL,
+                "xianzhi-" + deviceId, deviceId.toString(), passwords.encode(secret)));
+        SensorProfile profile = profiles.findFirstByZoneKindAndMetricOrderByProfileVersionDesc(zone.getKind(), slot.getMetric())
+                .orElseThrow(() -> new IllegalStateException("Sensor profile is missing"));
+        String externalKey = slot.getMetric().name().toLowerCase() + "-" + slot.getSlotIndex();
+        slot.bind(deviceId, profile.getId(), sensorName, externalKey);
+        sensors.save(slot);
+
+        DeviceContracts.DeviceView response = view(device, credential(device, secret));
+        idempotency.save(userId, key, "POST", path, request, response, 200);
+        audit.record(userId, "SENSOR_INITIALIZED");
+        return response;
     }
 
     @Transactional

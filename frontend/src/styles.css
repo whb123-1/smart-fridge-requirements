@@ -715,3 +715,34 @@ body,button,input,select,textarea{letter-spacing:0}
     transform:none;
   }
 }
+
+/* 普通用户探头初始化与 MQTT 一次性凭据 */
+.sensor-chip{grid-template-columns:24px minmax(0,1fr) auto auto}
+.sensor-chip.pending{border-style:dashed;background:#f8fbff}
+.sensor-chip .sensor-initialize-btn{width:auto;min-width:64px;min-height:32px;padding:0 11px;border:1px solid #8fb5d8;border-radius:5px;background:#e4f0fb;color:#315f89;font-size:11px;font-weight:700}
+.sensor-chip .sensor-initialize-btn:hover{border-color:#5dabb9;background:#d8edf1;color:#203a5a}
+.sensor-chip .sensor-unbind-btn{width:28px;height:28px;border-radius:5px;background:#edf4fb;color:#7893ae}
+.sensor-init-summary,.mqtt-ready-banner{display:flex;align-items:center;gap:12px;margin:15px 0;padding:13px;border:1px solid #bfd4e9;border-radius:7px;background:#f4f9fe;color:#426f9f}
+.sensor-init-summary>span,.mqtt-ready-banner>span{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border-radius:50%;background:#dfedf9}
+.sensor-init-summary b,.sensor-init-summary small,.mqtt-ready-banner b,.mqtt-ready-banner small{display:block}
+.sensor-init-summary b,.mqtt-ready-banner b{color:#203a5a;font-size:13px}
+.sensor-init-summary small,.mqtt-ready-banner small{margin-top:4px;color:#657f9a}
+.mqtt-ready-banner{border-color:#b8dcca;background:#f3fbf6;color:#4e8b6c}
+.mqtt-ready-banner>span{background:#dbf1e3}
+.mqtt-credential-list{display:grid;gap:7px;margin:14px 0}
+.mqtt-credential-list>div{display:grid;grid-template-columns:108px minmax(0,1fr);align-items:center;gap:10px;padding:9px 10px;border:1px solid #d2e0ee;border-radius:5px;background:#fbfdff}
+.mqtt-credential-list dt{color:#657f9a;font-size:10px;font-weight:700}
+.mqtt-credential-list dd{min-width:0;margin:0}
+.mqtt-credential-list code{display:block;overflow-wrap:anywhere;color:#294967;font:600 11px 'Nunito Sans',monospace;user-select:all}
+.mqtt-credential-list .credential-secret{border-color:#e1c79a;background:#fffaf0}
+.mqtt-credential-list .credential-secret code{color:#8a5a18}
+.mqtt-actions{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:8px}
+.mqtt-actions button{min-width:0;padding-inline:10px}
+
+@media (max-width:620px){
+  .sensor-chip{grid-template-columns:22px minmax(0,1fr) auto}
+  .sensor-chip>strong{grid-column:2}
+  .sensor-chip .sensor-initialize-btn,.sensor-chip .sensor-unbind-btn{grid-column:3;grid-row:1/3}
+  .mqtt-credential-list>div{grid-template-columns:1fr;gap:4px}
+  .mqtt-actions{grid-template-columns:1fr}
+}

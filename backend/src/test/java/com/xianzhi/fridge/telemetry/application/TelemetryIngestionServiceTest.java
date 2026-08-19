@@ -108,6 +108,22 @@ class TelemetryIngestionServiceTest {
     }
 
     @Test
+    void acceptsPercentSymbolForHumidityAndStoresCanonicalUnit() throws Exception {
+        ReflectionTestUtils.setField(sensor, "metric", SensorMetric.HUMIDITY);
+        TelemetryContracts.Message message = new TelemetryContracts.Message(UUID.randomUUID(), NOW, "test-firmware",
+                List.of(new TelemetryContracts.Reading(sensorId, SensorMetric.HUMIDITY,
+                        new BigDecimal("65"), "%", ReadingQuality.GOOD)));
+
+        TelemetryResult result = service.ingest(deviceId, mapper.writeValueAsString(message));
+
+        assertThat(result).isEqualTo(TelemetryResult.ACCEPTED);
+        verify(readings).insert(any(), eq(userId), eq(fridgeId), eq(zoneId), eq(deviceId), eq(sensorId), any(),
+                eq(SensorMetric.HUMIDITY), eq(new BigDecimal("65")), eq("PERCENT"), eq(ReadingQuality.GOOD),
+                any(), eq(NOW), eq(NOW));
+        assertThat(sensor.getLastValue()).isEqualByComparingTo("65");
+    }
+
+    @Test
     void rejectsFutureAndPhysicalOutOfRangeMessagesAsWholeMessages() throws Exception {
         TelemetryResult future = ingest(NOW.plus(Duration.ofMinutes(11)), BigDecimal.ONE, "C", ReadingQuality.GOOD);
         TelemetryResult physical = ingest(NOW, new BigDecimal("101"), "C", ReadingQuality.GOOD);

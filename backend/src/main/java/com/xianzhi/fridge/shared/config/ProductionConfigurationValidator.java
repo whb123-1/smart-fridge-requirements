@@ -59,20 +59,32 @@ public class ProductionConfigurationValidator implements ApplicationRunner {
         }
         if(speech.isFakeEnabled()||"fake".equalsIgnoreCase(speech.getProvider()))errors.add("fake speech provider is forbidden in prod");
         if("openai".equalsIgnoreCase(speech.getProvider())){
-            requireHttp(speech.getBaseUrl(),"SPEECH_BASE_URL",errors);
+            requireHttps(speech.getBaseUrl(),"SPEECH_BASE_URL",errors);
+            requireSecret(speech.getApiKey(),20,"OpenAI speech API key",errors);
+            if(!"whisper-1".equals(speech.getModel()))errors.add("SPEECH_MODEL must be whisper-1");
             if(!"s3".equalsIgnoreCase(storage.getProvider()))errors.add("OpenAI speech requires S3 object storage in prod");
-        }
+        } else if(!"disabled".equalsIgnoreCase(speech.getProvider()))errors.add("SPEECH_PROVIDER must be disabled or openai in prod");
         if("s3".equalsIgnoreCase(storage.getProvider())){
             requireSecret(storage.getAccessKey(),8,"STORAGE_ACCESS_KEY",errors);
             requireSecret(storage.getSecretKey(),20,"STORAGE_SECRET_KEY",errors);
+            if(storage.getBucket()==null||storage.getBucket().isBlank())errors.add("STORAGE_BUCKET is required for S3");
+            if(storage.getEndpoint()!=null&&!storage.getEndpoint().isBlank())requireHttp(storage.getEndpoint(),"STORAGE_ENDPOINT",errors);
             if(!storage.isServerSideEncryption())errors.add("S3 server-side encryption must be enabled");
         } else if(!"disabled".equalsIgnoreCase(speech.getProvider()))errors.add("local object storage is forbidden for enabled speech in prod");
-        if(ai.isExternalCallsEnabled())requireHttp(ai.getBaseUrl(),"AI_BASE_URL",errors);
+        if(ai.isExternalCallsEnabled()){
+            requireHttps(ai.getBaseUrl(),"AI_BASE_URL",errors);
+            requireSecret(ai.getApiKey(),20,"DeepSeek API key",errors);
+            if(!"deepseek-chat".equals(ai.getModelName()))errors.add("AI_MODEL_NAME must be deepseek-chat");
+        }
         if(ai.isVectorEnabled()){
+            if(!ai.isExternalCallsEnabled())errors.add("AI_VECTOR_ENABLED requires AI_EXTERNAL_CALLS_ENABLED");
             if(!"openai".equalsIgnoreCase(ai.getEmbeddingProvider()))errors.add("production vector search requires real OpenAI-compatible embeddings");
-            requireHttp(ai.getEmbeddingBaseUrl(),"EMBEDDING_BASE_URL",errors);
+            requireHttps(ai.getEmbeddingBaseUrl(),"EMBEDDING_BASE_URL",errors);
+            requireSecret(ai.getEmbeddingApiKey(),20,"OpenAI embedding API key",errors);
             requireHttp(ai.getQdrantUrl(),"QDRANT_URL",errors);
-            if(ai.getEmbeddingDimensions()<64)errors.add("EMBEDDING_DIMENSIONS is invalid");
+            requireSecret(ai.getQdrantApiKey(),20,"Qdrant API key",errors);
+            if(!"text-embedding-3-small".equals(ai.getEmbeddingModel()))errors.add("EMBEDDING_MODEL must be text-embedding-3-small");
+            if(ai.getEmbeddingDimensions()!=1536)errors.add("EMBEDDING_DIMENSIONS must be 1536");
         }
         if(!errors.isEmpty())throw new IllegalStateException("Unsafe production configuration: "+String.join("; ",errors));
     }

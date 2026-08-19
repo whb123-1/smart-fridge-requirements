@@ -56,4 +56,10 @@ public class FridgeZone {
     public BigDecimal getSafeHumidityMinPct() { return safeHumidityMinPct; }
     public BigDecimal getSafeHumidityMaxPct() { return safeHumidityMaxPct; }
     public Instant getDeletedAt() { return deletedAt; }
+
+    public void updateSettings(String name, BigDecimal targetTemperatureC, BigDecimal targetHumidityPct) {
+        this.name = name;
+        this.targetTemperatureC = targetTemperatureC;
+        this.targetHumidityPct = targetHumidityPct;
+    }
 }

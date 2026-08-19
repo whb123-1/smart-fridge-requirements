@@ -1,50 +1,51 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createMockSynthesisResult, matchRecipeCombination } from './deliciousSynthesis.js'
+import { matchRecipeCombination } from './deliciousSynthesis.js'
 
-const inventory = [
-  { id: 1, name: '鸡蛋', amount: 8, unit: '个', category: '肉蛋' },
-  { id: 2, name: '鸡胸肉', amount: 520, unit: '克', category: '肉蛋' },
-  { id: 3, name: '嫩豆腐', amount: 2, unit: '盒', category: '豆制品' },
-  { id: 4, name: '鲜牛奶', amount: 680, unit: '毫升', category: '饮料' },
-  { id: 5, name: '低钠生抽', amount: 320, unit: '毫升', category: '调味品' },
-]
+function response(data) {
+  return { ok: true, status: 200, text: async () => JSON.stringify({ code: 'OK', data }) }
+}
 
-test('鸡蛋可以模糊命中番茄炒蛋', () => {
-  const result = createMockSynthesisResult({ ingredients: [{ id: 1, name: '鸡蛋', quantity: 1, unit: '个' }], inventory })
+test('美味合成使用后端菜谱数据库结果', async t => {
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch })
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, '/api/v1/recipe-synthesis/match')
+    assert.equal(options.method, 'POST')
+    const request = JSON.parse(options.body)
+    assert.deepEqual(request.ingredients, [{ batchId: 'batch-1', name: '鸡蛋', quantity: 2, unit: 'piece' }])
+    return response({
+      matched: ['鸡蛋'], unmatched: [], suggestions: [],
+      recipes: [{
+        id: 'recipe-1', name: '番茄炒蛋', description: '数据库菜谱', cookMinutes: 15, servings: 2,
+        total: { calories: 420 }, perServing: { calories: 210, protein: 12 }, missing: ['番茄'],
+        ingredients: [
+          { id: 'c1', name: '鸡蛋', role: 'PRIMARY', quantity: 2, unit: 'piece' },
+          { id: 'c2', name: '番茄', role: 'PRIMARY', quantity: 250, unit: 'g' },
+        ], steps: ['炒熟'], bookmarked: false,
+      }],
+    })
+  }
+  const result = await matchRecipeCombination({ ingredients: [{ batchId: 'batch-1', name: '鸡蛋', quantity: 2, unit: 'piece' }] })
   assert.equal(result.status, 'matched')
   assert.equal(result.recipe.name, '番茄炒蛋')
   assert.deepEqual(result.recipe.missing, ['番茄'])
 })
 
-test('多食材组合命中同一道菜', () => {
-  const result = createMockSynthesisResult({
-    ingredients: [{ id: 2, name: '鸡胸肉', quantity: 1, unit: '克' }, { id: 3, name: '嫩豆腐', quantity: 1, unit: '盒' }],
-    inventory,
-  })
-  assert.equal(result.status, 'matched')
-  assert.equal(result.recipe.name, '鸡胸肉豆腐煲')
-})
-
-test('重复数量不改变食材种类匹配', () => {
-  const result = createMockSynthesisResult({ ingredients: [{ id: 1, name: '鸡蛋', quantity: 3, unit: '个' }], inventory })
-  assert.equal(result.status, 'matched')
-  assert.equal(result.recipe.name, '番茄炒蛋')
-})
-
-test('不兼容组合返回补料建议', () => {
-  const result = createMockSynthesisResult({
-    ingredients: [{ id: 4, name: '鲜牛奶', quantity: 1, unit: '毫升' }, { id: 5, name: '低钠生抽', quantity: 1, unit: '毫升' }],
-    inventory,
-  })
+test('数据库无匹配时返回后端建议', async t => {
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch })
+  globalThis.fetch = async () => response({ recipes: [], matched: [], unmatched: ['牛奶'], suggestions: ['燕麦片'] })
+  const result = await matchRecipeCombination({ ingredients: [{ name: '牛奶', quantity: 1, unit: 'cup' }] })
   assert.equal(result.status, 'unmatched')
-  assert.ok(result.suggestion.ingredientName)
-  assert.ok(result.suggestion.targetRecipeName)
+  assert.equal(result.suggestion.ingredientName, '燕麦片')
 })
 
-test('请求可以通过 AbortSignal 取消', async () => {
+test('已取消的请求不会调用后端', async () => {
   const controller = new AbortController()
-  const request = matchRecipeCombination({ ingredients: [{ id: 1, name: '鸡蛋', quantity: 1, unit: '个' }], inventory }, { signal: controller.signal })
   controller.abort()
-  await assert.rejects(request, error => error.name === 'AbortError')
+  await assert.rejects(
+    matchRecipeCombination({ ingredients: [{ name: '鸡蛋', quantity: 1, unit: 'piece' }] }, { signal: controller.signal }),
+    error => error.name === 'AbortError',
+  )
 })

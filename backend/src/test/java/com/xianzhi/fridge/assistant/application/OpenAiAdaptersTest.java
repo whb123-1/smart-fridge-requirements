@@ -29,7 +29,11 @@ class OpenAiAdaptersTest {
         properties = new AssistantProperties();
         properties.setExternalCallsEnabled(true);
         properties.setBaseUrl(server.baseUrl() + "/v1");
+        properties.setApiKey("deepseek-secret-for-test");
+        properties.setModelName("deepseek-chat");
         properties.setEmbeddingBaseUrl(server.baseUrl() + "/v1");
+        properties.setEmbeddingApiKey("openai-secret-for-test");
+        properties.setEmbeddingModel("text-embedding-3-small");
         properties.setEmbeddingDimensions(3);
         client = new ExternalProviderClient(mapper, meters);
     }
@@ -50,6 +54,9 @@ class OpenAiAdaptersTest {
 
         assertThat(generated.answer()).isEqualTo("建议先用鸡蛋");
         assertThat(generated.fallback()).isFalse();
+        server.verify(postRequestedFor(urlEqualTo("/v1/chat/completions"))
+                .withHeader("Authorization", equalTo("Bearer deepseek-secret-for-test"))
+                .withRequestBody(matchingJsonPath("$.model", equalTo("deepseek-chat"))));
 
         server.resetAll();
         server.stubFor(post("/v1/chat/completions")
@@ -65,6 +72,10 @@ class OpenAiAdaptersTest {
         server.stubFor(post("/v1/embeddings")
                 .willReturn(okJson("{\"data\":[{\"embedding\":[0.1,0.2,0.3]}]}")));
         assertThat(adapter.embed("番茄")).containsExactly(0.1f, 0.2f, 0.3f);
+        server.verify(postRequestedFor(urlEqualTo("/v1/embeddings"))
+                .withHeader("Authorization", equalTo("Bearer openai-secret-for-test"))
+                .withRequestBody(matchingJsonPath("$.model", equalTo("text-embedding-3-small")))
+                .withRequestBody(matchingJsonPath("$.dimensions", equalTo("3"))));
 
         server.resetAll();
         server.stubFor(post("/v1/embeddings")

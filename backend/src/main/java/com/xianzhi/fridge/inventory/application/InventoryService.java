@@ -47,6 +47,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,16 +67,17 @@ public class InventoryService {
     private final ObjectMapper mapper;
     private final AuditService audit;
     private final Clock clock;
+    private final JdbcTemplate jdbc;
 
     public InventoryService(FridgeRepository fridges, FridgeZoneRepository zones, FoodCatalogRepository catalogs,
                             FoodWeightEstimateRepository weights, FoodStorageProfileRepository profiles,
                             InventoryItemRepository items, InventoryBatchRepository batches,
                             InventoryTransactionRepository transactions, ShelfLifeAssessmentRepository assessments,
                             IdempotencyRecordRepository idempotency, OutboxEventRepository outbox,
-                            ObjectMapper mapper, AuditService audit, Clock clock) {
+                            ObjectMapper mapper, AuditService audit, Clock clock, JdbcTemplate jdbc) {
         this.fridges = fridges; this.zones = zones; this.catalogs = catalogs; this.weights = weights; this.profiles = profiles;
         this.items = items; this.batches = batches; this.transactions = transactions; this.assessments = assessments;
-        this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit; this.clock = clock;
+        this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit; this.clock = clock; this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
@@ -88,6 +90,26 @@ public class InventoryService {
         return owned.stream().filter(item -> category == null || item.getCategory() == category)
                 .filter(item -> normalizedQuery.isEmpty() || item.getDisplayName().toLowerCase(Locale.ROOT).contains(normalizedQuery))
                 .map(item -> toItemView(item, zoneId, status)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InventoryContracts.TransactionView> listTransactions(UUID userId, UUID fridgeId, int limit) {
+        ownedFridge(userId, fridgeId);
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        return jdbc.query("""
+                select BIN_TO_UUID(t.id) id, BIN_TO_UUID(t.batch_id) batch_id, i.display_name, t.type,
+                       t.before_quantity, t.after_quantity, t.quantity_delta, t.unit, t.source_type, t.created_at
+                  from inventory_transaction t
+                  join inventory_batch b on b.id=t.batch_id
+                  join inventory_item i on i.id=b.item_id
+                 where t.actor_user_id=UUID_TO_BIN(?) and i.fridge_id=UUID_TO_BIN(?)
+                 order by t.created_at desc limit ?
+                """, (rs, row) -> new InventoryContracts.TransactionView(
+                UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("batch_id")),
+                rs.getString("display_name"), TransactionType.valueOf(rs.getString("type")),
+                rs.getBigDecimal("before_quantity"), rs.getBigDecimal("after_quantity"),
+                rs.getBigDecimal("quantity_delta"), rs.getString("unit"), rs.getString("source_type"),
+                rs.getTimestamp("created_at").toInstant()), userId.toString(), fridgeId.toString(), safeLimit);
     }
 
     @Transactional

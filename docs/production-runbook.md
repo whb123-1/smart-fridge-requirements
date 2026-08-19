@@ -17,6 +17,18 @@
      -f compose.prod.yaml -f compose.monitoring.yaml -f compose.backup.yaml config --quiet
    ```
 
+### 1.1 启用 DeepSeek + OpenAI（可选付费能力）
+
+默认生产环境保持外部 AI 关闭。确认供应商账户、额度和网络策略后，在仓库根目录执行以下 PowerShell 脚本；脚本会两次掩码读取每把 Key，不会打印或写入命令历史：
+
+```powershell
+.\infra\scripts\set-ai-provider-secrets.ps1 -EnableProduction
+```
+
+该脚本写入 `secrets/deepseek_api_key`、`secrets/openai_api_key`，并设置 `deepseek-chat`、`whisper-1`、`text-embedding-3-small`、MinIO 和 1536 维向量配置。若只轮换 Key、不改变开关，省略 `-EnableProduction` 并添加 `-Force`。
+
+启用前必须先确认 `secrets/qdrant_api_key`、MinIO 访问 Secret 和 `.env.prod` 中的 `STORAGE_*` 配置存在；不要把 Key 写进 `.env.prod`。
+
 6. 启动内部依赖、创建最小权限账号并执行独立迁移：
 
    ```bash

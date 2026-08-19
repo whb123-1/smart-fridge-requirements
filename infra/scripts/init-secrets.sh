@@ -42,6 +42,7 @@ create_secret minio_kms_key 32
 create_secret qdrant_api_key 32
 create_secret grafana_admin_password 32
 create_secret restic_password 32
+create_empty deepseek_api_key
 create_empty openai_api_key
 create_empty restic_s3_access_key
 create_empty restic_s3_secret_key

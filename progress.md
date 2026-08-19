@@ -11,9 +11,11 @@
 - 已追加且只追加 V010-V013；V001-V009 未修改。空库 V001→V013 和既有 V002→V013 原地升级均已通过 MySQL 8.4 Testcontainers 验证，当前生产 schema 为 V013。
 - S3 兼容存储、OpenAI 兼容语音/LLM/Embedding、版本化 Qdrant 重建、菜谱导入任务查询/重试及索引状态运维均已实现；超时、有限重试、熔断、结构校验、指标和规则/MySQL 回退均有测试。站内通知保留，`emailEnabled` 固定为 `false` 并标记弃用。
 - 已加入生产 Compose、Caddy HTTPS/MQTT-over-WSS、独立迁移任务、Docker Secret/configtree、生产配置拒绝启动校验、Prometheus/Grafana/Loki/Promtail/Alertmanager、每日一致性备份、每周隔离恢复演练、GitHub Actions、SBOM/扫描/签名和部署/回滚运行手册。
+- 已完成 DeepSeek/OpenAI 双供应商接入配置：聊天使用 `deepseek-chat`，语音使用 OpenAI `whisper-1`，Embedding 使用 `text-embedding-3-small` 1536 维；聊天与 OpenAI Secret 已拆分，MinIO S3 生命周期/AES256、Qdrant 1536 维索引和生产密钥校验均已覆盖。真实供应商调用仍需在写入本机 Secret 后执行在线验收。
+- 普通用户现可在“设置 → 冰箱分区与探头”直接初始化待绑定槽位；后端在单个事务中锁定槽位、创建 PHYSICAL 设备、生成一次性 MQTT 凭据并完成探头绑定，界面支持复制或下载完整连接配置及遥测示例。
 - 最终运行镜像基线：Spring Boot 3.5.14、Spring Framework 6.2.19、Spring Data 3.5.12、Tomcat 10.1.55、Jackson 2.21.4、Netty 4.1.136.Final、Caddy 2.11.4（Go 1.26.6）、Restic 0.19.1（Go 1.26.6）、MySQL 8.4.11。API 运行时为 Ubuntu 22.04，Web 为 Alpine 3.24，Backup 为 Oracle Linux 9.8。
 - Trivy 0.65.0 最终镜像扫描：`xianzhi-api:local` 的 Ubuntu/app.jar、`xianzhi-web:local` 的 Alpine/Caddy、`xianzhi-backup:local` 的 Oracle Linux/Restic 均为 0 High/Critical；Gitleaks 扫描 18 个提交无泄漏，npm audit 为 0。
-- 最终质量门禁：后端 57/57（含 Testcontainers、ArchUnit、OpenAPI 和核心领域行覆盖率 ≥80%）、前端 25/25、生产构建、Playwright 5 passed/3 skipped（桌面/移动互斥）均通过。
+- 最终质量门禁：后端 64/64（含 Testcontainers、ArchUnit、OpenAPI、双供应商适配、普通用户探头初始化和真实 EMQX→MySQL 链路）、前端 26/26、生产构建、Playwright 5 passed/3 skipped（桌面/移动互斥）均通过。
 - 本机生产 Profile 已通过内部证书 HTTPS、安全头/Cookie、同源保护、管理员全生命周期、MQTT-over-WSS、MQTT 订阅、Worker、Swagger/Debug 禁用、S3 AES256 流式往返、发布前/发布后备份和隔离 schema 恢复演练。当前 API、MySQL、Redis、EMQX、MinIO、Qdrant 均 Healthy，监控与备份服务运行。
 - 性能验收：50 VU 核心 API 读取 p95 34.74 ms、写入 p95 36.21 ms、错误率 0%；100 个设备 QoS 1 的 PUBACK、`telemetry_message`、`ACCEPTED`、`sensor_reading` 均为 100，无静默丢失。
 - 当前没有已知 P1/P2 缺陷。生产日志中的冗余 `commons-logging` 依赖已经排除；最终重建、零高危扫描和冒烟复验通过。
@@ -270,3 +272,15 @@ npm run dev
 - 真实外部 AI 的超时、计费、内容安全和生产级可观测性仍待接入；当前 `AI_EXTERNAL_CALLS_ENABLED=false`。
 - 尚未加入 Playwright 浏览器 E2E；当前为后端集成测试、前端 Node 测试、生产构建和 Compose/API/MQTT 实链路验收。
 - 生产 HTTPS、Secure Cookie、密钥管理、备份、监控和 CI/CD 仍属于阶段 5。
+# 2026-08-19 真实数据闭环修复
+
+- 探头初始化后不再把“已绑定”当成“已有读数”：设置页和环境页每 5 秒读取设备 `lastSeenAt`、探头 `lastReceivedAt` 与 `lastValue`，明确显示“等待设备连接”“等待首条数据”或真实 MQTT 读数。
+- 新增 `PATCH /api/v1/zones/{id}`，分区名称、目标温度和目标湿度写入 MySQL；移除初始化后在浏览器中假增删分区的入口。
+- 新增 `DELETE /api/v1/meals/{id}`，饮食删除按用户隔离并落库；饮食页改为读取真实日汇总和 7 日库存消耗分析，删除固定评分、固定排行和固定日期。
+- 新增 `GET /api/v1/inventory/transactions`，库存动态读取真实库存事务；没有营养数据库字段的库存热量显示“暂无”，不再固定显示 50 千卡。
+- 保质期提醒日期现在通过批次更新接口写入 MySQL；新增食材的入库日期改为当天。
+- 美味合成删除生产 Mock 菜谱目录，改为调用 `/api/v1/recipe-synthesis/match` 并展示正式菜谱数据库结果。
+- 验证结果：后端 65/65、前端 24/24、前端生产构建、真实 EMQX→API→MySQL Testcontainers 链路全部通过。生产发布前备份 `xianzhi-20260819T072547Z.sql.gz` 已生成，生产冒烟通过。
+- 修复湿度探头示例单位与后端校验不一致：新下载配置统一使用 `PERCENT`，后端同时兼容硬件常用的 `PERCENT` 与 `%`，入库统一规范为 `PERCENT`。
+- 删除前端源码中虽会在启动时清空、但仍残留的演示温湿度与探头常量；任何加载失败状态均只显示空值或错误，不显示示例读数。
+- 最终验证结果更新为后端 66/66、前端 24/24、生产构建通过；API/Worker/Web 已重新发布，生产冒烟与内部 readiness 再次通过。

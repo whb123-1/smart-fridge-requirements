@@ -33,6 +33,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -147,9 +148,11 @@ public class TelemetryIngestionService {
         if (reading.metric() == null || reading.value() == null || reading.unit() == null || reading.quality() == null) {
             throw rejected("TELEMETRY_SCHEMA_INVALID", "Reading fields are required");
         }
-        String unit = reading.unit().toUpperCase();
+        String unit = reading.unit().trim().toUpperCase(Locale.ROOT);
         if (reading.metric() == SensorMetric.HUMIDITY) {
-            if (!"PERCENT".equals(unit)) throw rejected("TELEMETRY_UNIT_INVALID", "Humidity must use PERCENT");
+            if (!"PERCENT".equals(unit) && !"%".equals(unit)) {
+                throw rejected("TELEMETRY_UNIT_INVALID", "Humidity must use PERCENT or %");
+            }
             return reading.value();
         }
         if ("C".equals(unit)) return reading.value();

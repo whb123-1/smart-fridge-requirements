@@ -31,7 +31,7 @@
 
 - 家庭共享、多用户共同拥有冰箱和 OAuth。
 - 邮件、Web Push；`emailEnabled` 必须固定为 `false`。
-- 尚未提供真实密钥的 OpenAI/Embedding 供应商实测。
+- 未提供真实密钥时不执行 DeepSeek/OpenAI 的在线调用；提供密钥并启用开关后，必须按本文第 6.6 节和生产运行手册执行供应商实测。
 - 本机内部 CA 不能替代真实公网 ACME、DNS 和防火墙验收。
 - Windows Docker Desktop 不能替代 Linux 主机的 cAdvisor/cgroup 和完整宿主磁盘指标验收。
 - 食品安全、营养数据和建议的专业领域审定。
@@ -257,7 +257,7 @@ npm run dev
 
 | ID | 优先级 | 场景与步骤 | 期望结果 |
 | --- | --- | --- | --- |
-| BB-MQTT-001 | P0 | 注册设备并记录一次性凭据，再重新查询 | 密码只在创建/轮换响应显示一次，库中只有哈希 |
+| BB-MQTT-001 | P0 | 普通用户在“设置 → 冰箱分区与探头”选择待绑定槽位并初始化 | 自动创建 PHYSICAL 设备并绑定槽位；一次展示 Broker、Client ID、用户名、密码、Topic 和 Sensor ID；可复制或下载配置 |
 | BB-MQTT-002 | P0 | 设备发布自己的主题并订阅任意主题 | 自有发布允许；设备订阅和跨设备发布被 ACL 拒绝 |
 | BB-MQTT-003 | P0 | WSS QoS 1 发布合法 GOOD 温度/湿度 | PUBACK；`telemetry_message=ACCEPTED`；对应读数各一条 |
 | BB-MQTT-004 | P0 | 重发相同 `messageId` | 不重复写读数；去重结果可追踪 |
@@ -268,6 +268,7 @@ npm run dev
 | BB-MQTT-009 | P1 | 停止数据超过陈旧阈值 | 环境状态/事件明确显示 STALE，不伪装为正常 |
 | BB-MQTT-010 | P0 | 禁用/删除用户后保持旧 MQTT 连接并尝试重连 | 旧连接不能继续有效入库，旧凭据重连失败 |
 | BB-MQTT-011 | P0 | 运行 100 设备 QoS 1 门禁 | PUBACK、消息、ACCEPTED、读数均 100，无静默丢失 |
+| BB-MQTT-012 | P0 | 并发初始化同一待绑定槽位，或用另一普通用户初始化该槽位 | 只有一个事务成功；重复绑定返回 409；越权返回 404；不产生孤立设备 |
 | BB-NOT-001 | P1 | 触发临期、过期、低库存和环境事件 | 只生成站内通知；静默时段和去重生效 |
 | BB-NOT-002 | P1 | 尝试开启邮件 | API 响应中 `emailEnabled=false`，无邮件投递 |
 
@@ -287,6 +288,16 @@ npm run dev
 | BB-AI-001 | P1 | AI/Embedding 关闭或 Qdrant 不可用 | MySQL/规则降级仍可返回；核心业务不依赖外部模型 |
 | BB-AI-002 | P1 | 模型返回超时、429/5xx 或错误 Schema | 有限重试/熔断生效，无未校验写操作 |
 | BB-AI-003 | P0 | 助手提出写操作 | 只生成可确认草案；确认前不改变库存/采购 |
+
+启用 DeepSeek + OpenAI 后，先执行：
+
+```powershell
+.\infra\scripts\set-ai-provider-secrets.ps1 -EnableProduction
+docker compose --env-file .env.prod -f compose.prod.yaml config --quiet
+docker compose --env-file .env.prod -f compose.prod.yaml up -d --build api worker
+```
+
+然后使用普通用户的已初始化账号发送一个中文助手问题，检查响应的 `fallback=false`；上传短中文音频检查语音草稿从 `PROCESSING` 进入 `READY`；管理员执行 `POST /api/v1/admin/search-index/rebuild` 并观察新 1536 维集合完成切换。任何供应商超时、429、5xx 或错误 Schema 都必须回退/失败，不得写入未确认的库存。
 
 ### 6.7 管理员和账号生命周期
 
@@ -478,7 +489,7 @@ npm run test:e2e
 
 2026-08-19 本机生产 Profile 已取得以下结果：
 
-- 后端 57/57、前端 25/25、Playwright 5 passed/3 skipped。
+- 后端 63/63、前端 25/25、Playwright 5 passed/3 skipped。
 - V001→V013 空库和 V002→V013 原地升级通过。
 - API/Web/Backup 的 OS 与应用二进制 Trivy High/Critical 均为 0。
 - 内部 CA HTTPS/WSS、管理员生命周期、Worker、S3、备份和隔离恢复通过。

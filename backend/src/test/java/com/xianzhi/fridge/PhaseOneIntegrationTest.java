@@ -116,6 +116,68 @@ class PhaseOneIntegrationTest {
     }
 
     @Test
+    void normalUserCanAtomicallyInitializeSensorAndReceiveMqttCredentialOnce() throws Exception {
+        Session owner = register("sensor-owner-" + UUID.randomUUID() + "@example.com");
+        MvcResult onboarding = mvc.perform(post("/api/v1/onboarding/initialize")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"fridgeName":"Sensor fridge","zones":[
+                                  {"kind":"CHILL","name":"Chill","temperatureSensorCount":1,"humiditySensorCount":0},
+                                  {"kind":"FRESH","name":"Fresh","temperatureSensorCount":0,"humiditySensorCount":0},
+                                  {"kind":"FREEZE","name":"Freeze","temperatureSensorCount":0,"humiditySensorCount":0}
+                                ]}
+                                """))
+                .andExpect(status().isOk()).andReturn();
+        String zoneId = data(onboarding).path("zones").path(0).path("id").asText();
+        MvcResult slots = mvc.perform(get("/api/v1/zones/{id}/sensors", zoneId)
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].bindingStatus").value("PENDING_BIND"))
+                .andReturn();
+        String slotId = data(slots).path(0).path("id").asText();
+        String key = UUID.randomUUID().toString();
+        String request = "{\"slotId\":\"" + slotId + "\",\"name\":\"Chill temperature probe\"}";
+
+        MvcResult initialized = mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.type").value("PHYSICAL"))
+                .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.data.credential.brokerUrl").isNotEmpty())
+                .andExpect(jsonPath("$.data.credential.clientId").isNotEmpty())
+                .andExpect(jsonPath("$.data.credential.username").isNotEmpty())
+                .andExpect(jsonPath("$.data.credential.password").isNotEmpty())
+                .andExpect(jsonPath("$.data.credential.topic").isNotEmpty())
+                .andExpect(jsonPath("$.data.sensors[0].id").value(slotId))
+                .andExpect(jsonPath("$.data.sensors[0].bindingStatus").value("BOUND"))
+                .andExpect(jsonPath("$.data.sensors[0].externalKey").value("temperature-1"))
+                .andReturn();
+        JsonNode initializedData = data(initialized);
+        String deviceId = initializedData.path("id").asText();
+        String password = initializedData.path("credential").path("password").asText();
+
+        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(deviceId))
+                .andExpect(jsonPath("$.data.credential.password").value(password));
+        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SENSOR_SLOT_ALREADY_BOUND"));
+
+        Session stranger = register("sensor-stranger-" + UUID.randomUUID() + "@example.com");
+        mvc.perform(post("/api/v1/zones/{id}/sensors/initialize", zoneId)
+                        .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ZONE_NOT_FOUND"));
+    }
+
+    @Test
     void refreshReplayRevokesTheWholeTokenFamily() throws Exception {
         Session original = register("refresh-" + UUID.randomUUID() + "@example.com");
         MvcResult rotatedResult = mvc.perform(post("/api/v1/auth/refresh")
@@ -598,6 +660,66 @@ class PhaseOneIntegrationTest {
         }
         Long activeAdmins = jdbc.queryForObject("select count(*) from app_user where role='ADMIN' and status='ACTIVE' and deleted_at is null", Long.class);
         assertThat(activeAdmins).isEqualTo(1L);
+    }
+
+    @Test
+    void zoneSettingsAndMealDeletionArePersistedAndUserIsolated() throws Exception {
+        Session owner = register("persistence-owner-" + UUID.randomUUID() + "@example.com");
+        Session stranger = register("persistence-stranger-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(owner);
+
+        String zoneKey = UUID.randomUUID().toString();
+        mvc.perform(patch("/api/v1/zones/{id}", fridge.firstZoneId())
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", zoneKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Main chill\",\"targetTemperatureC\":3.5,\"targetHumidityPct\":72}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Main chill"))
+                .andExpect(jsonPath("$.data.targetTemperatureC").value(3.5));
+        Map<String, Object> savedZone = jdbc.queryForMap("select name,target_temperature_c,target_humidity_pct from fridge_zone where id=UUID_TO_BIN(?)", fridge.firstZoneId());
+        assertThat(savedZone.get("name")).isEqualTo("Main chill");
+        assertThat(savedZone.get("target_temperature_c").toString()).isEqualTo("3.50");
+        assertThat(savedZone.get("target_humidity_pct").toString()).isEqualTo("72.00");
+
+        mvc.perform(patch("/api/v1/zones/{id}", fridge.firstZoneId())
+                        .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Stolen\",\"targetTemperatureC\":4,\"targetHumidityPct\":70}"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ZONE_NOT_FOUND"));
+
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fridgeId\":\"" + fridge.id() + "\",\"name\":\"Persisted apple\",\"category\":\"FRUIT\",\"defaultUnit\":\"piece\",\"batches\":[{\"zoneId\":\"" + fridge.firstZoneId() + "\",\"quantity\":3,\"unit\":\"piece\"}]}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/inventory/transactions").param("fridgeId", fridge.id()).param("limit", "5")
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].itemName").value("Persisted apple"))
+                .andExpect(jsonPath("$.data[0].type").value("IN"))
+                .andExpect(jsonPath("$.data[0].afterQuantity").value(3));
+        mvc.perform(get("/api/v1/inventory/transactions").param("fridgeId", fridge.id())
+                        .header("Authorization", bearer(stranger)))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("FRIDGE_NOT_FOUND"));
+
+        MvcResult createdMeal = mvc.perform(post("/api/v1/meals")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealAt\":\"2026-08-19T06:30:00Z\",\"mealType\":\"早餐\",\"name\":\"鸡蛋\",\"servings\":1,\"calories\":120,\"estimated\":false,\"nutritionSource\":\"TEST\"}"))
+                .andExpect(status().isOk()).andReturn();
+        String mealId = data(createdMeal).path("id").asText();
+        mvc.perform(delete("/api/v1/meals/{id}", mealId)
+                        .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("MEAL_NOT_FOUND"));
+        String deleteKey = UUID.randomUUID().toString();
+        mvc.perform(delete("/api/v1/meals/{id}", mealId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", deleteKey))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/meals/{id}", mealId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", deleteKey))
+                .andExpect(status().isOk());
+        Long remaining = jdbc.queryForObject("select count(*) from meal_record where id=UUID_TO_BIN(?)", Long.class, mealId);
+        assertThat(remaining).isZero();
     }
 
     private String demoteAfter(CountDownLatch start, UUID actor, UUID target) throws Exception {

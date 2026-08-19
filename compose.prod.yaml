@@ -36,6 +36,7 @@ x-backend-secrets: &backend-secrets
   - identity_tombstone_key
   - mqtt_service_password
   - mqtt_internal_token
+  - deepseek_api_key
   - openai_api_key
   - storage_access_key
   - storage_secret_key
@@ -127,7 +128,6 @@ services:
       retries: 20
 
   minio-init:
-    profiles: ["tools"]
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -179,6 +179,8 @@ services:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
       emqx: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      qdrant: { condition: service_healthy }
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     stop_grace_period: 40s
@@ -201,6 +203,8 @@ services:
       mysql: { condition: service_healthy }
       redis: { condition: service_healthy }
       emqx: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      qdrant: { condition: service_healthy }
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     stop_grace_period: 40s
@@ -214,6 +218,11 @@ services:
       SPRING_PROFILES_ACTIVE: prod,admin-bootstrap
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:?ADMIN_BOOTSTRAP_EMAIL is required}
       MQTT_ENABLED: "false"
+      STORAGE_PROVIDER: disabled
+      SPEECH_PROVIDER: disabled
+      AI_EXTERNAL_CALLS_ENABLED: "false"
+      AI_VECTOR_ENABLED: "false"
+      EMBEDDING_PROVIDER: disabled
     secrets: *backend-secrets
     networks: [backend]
     depends_on:
@@ -268,6 +277,7 @@ secrets:
   mqtt_internal_token: { file: ./secrets/mqtt_internal_token }
   emqx_node_cookie: { file: ./secrets/emqx_node_cookie }
   emqx_dashboard_password: { file: ./secrets/emqx_dashboard_password }
+  deepseek_api_key: { file: ./secrets/deepseek_api_key }
   openai_api_key: { file: ./secrets/openai_api_key }
   storage_access_key: { file: ./secrets/storage_access_key }
   storage_secret_key: { file: ./secrets/storage_secret_key }

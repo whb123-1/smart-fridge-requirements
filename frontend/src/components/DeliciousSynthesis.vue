@@ -70,19 +70,11 @@ function triggerBounce() {
 function buildRequest() {
   return {
     ingredients: selectedIngredients.value.map(item => ({
-      id: item.id,
+      batchId: item.batchId,
       name: item.name,
       quantity: item.quantity,
-      unit: item.unit,
+      unit: item.apiUnit,
     })),
-    inventory: props.foods.map(food => ({
-      id: food.id,
-      name: food.name,
-      amount: food.amount,
-      unit: food.unit,
-      category: food.category,
-    })),
-    preferences: { ...props.preferences },
   }
 }
 
@@ -122,11 +114,13 @@ function addIngredient(food, { bounce = false } = {}) {
   } else {
     selectedIngredients.value.push({
       id: food.id,
+      batchId: food.batchId,
       name: food.name,
       icon: food.icon,
       category: food.category,
       quantity: 1,
       unit: food.unit,
+      apiUnit: food.apiUnit,
     })
   }
   inlineNotice.value = ''
