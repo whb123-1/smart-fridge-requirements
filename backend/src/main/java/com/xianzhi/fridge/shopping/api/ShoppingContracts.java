@@ -19,7 +19,7 @@ public final class ShoppingContracts {
                                     @DecimalMin("0") BigDecimal quantity, @Size(max = 24) String unit,
                                     @Size(max = 255) String note, ShoppingStatus status) { }
     public record StoreRequest(UUID fridgeId, UUID zoneId, @DecimalMin("0") BigDecimal quantity,
-                               @Size(max = 24) String unit, Instant storedAt, Integer shelfLifeDays) { }
+                               @Size(max = 24) String unit, Instant storedAt) { }
     public record ItemView(UUID id, String name, String category, BigDecimal quantity, String unit,
                            String note, ShoppingStatus status, String sourceType) { }
     public record ListView(UUID id, UUID fridgeId, String name, List<ItemView> items) { }

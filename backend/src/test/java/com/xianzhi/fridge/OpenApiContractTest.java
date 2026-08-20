@@ -21,7 +21,7 @@ class OpenApiContractTest {
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(Set.of(
                 "/auth/register", "/auth/login", "/auth/refresh", "/auth/logout",
                 "/me", "/me/password", "/onboarding", "/onboarding/initialize", "/fridges",
-                "/inventory/items", "/inventory/transactions", "/inventory/items/{id}", "/inventory/items/{id}/batches",
+                "/inventory/items", "/inventory/transactions", "/inventory/transactions/{id}", "/inventory/items/{id}", "/inventory/items/{id}/batches",
                 "/inventory/batches/{id}", "/inventory/batches/{id}/transactions", "/expiry",
                 "/inventory/batches/{id}/assessments", "/catalog/suggestions", "/catalog/weight-estimates",
                 "/shopping-lists", "/shopping-lists/{id}/items", "/shopping-items/{id}", "/shopping-items/{id}/store",
@@ -31,6 +31,7 @@ class OpenApiContractTest {
                 "/inventory/voice-drafts", "/inventory/voice-drafts/{id}", "/inventory/voice-drafts/{id}/confirm",
                 "/recipes", "/recipes/{id}", "/recipes/generate", "/recipe-synthesis/match",
                 "/recipes/{id}/scale", "/recipes/{id}/bookmark", "/recipes/{id}/cook",
+                "/fridges/{fridgeId}/recipe-plans", "/recipe-plans/{id}",
                 "/admin/recipe-sources", "/admin/recipe-sources/{id}",
                 "/admin/recipe-import-jobs", "/admin/recipe-import-jobs/{id}", "/admin/recipe-import-jobs/{id}/retry",
                 "/admin/search-index", "/admin/search-index/rebuild", "/admin/users", "/admin/users/{id}",

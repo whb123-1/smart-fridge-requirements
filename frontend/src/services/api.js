@@ -100,6 +100,7 @@ export const api = {
 
   listInventoryItems: filters => request(`/api/v1/inventory/items${queryString(filters || {})}`),
   listInventoryTransactions: filters => request(`/api/v1/inventory/transactions${queryString(filters || {})}`),
+  deleteInventoryTransaction: id => write(`/api/v1/inventory/transactions/${id}`, 'DELETE', undefined, true),
   createInventoryItem: payload => write('/api/v1/inventory/items', 'POST', payload, true),
   updateInventoryItem: (id, payload) => write(`/api/v1/inventory/items/${id}`, 'PATCH', payload, true),
   deleteInventoryItem: id => write(`/api/v1/inventory/items/${id}`, 'DELETE', undefined, true),
@@ -132,6 +133,10 @@ export const api = {
   matchRecipes: ingredients => write('/api/v1/recipe-synthesis/match', 'POST', { ingredients }),
   scaleRecipe: (id, payload) => write(`/api/v1/recipes/${id}/scale`, 'POST', payload),
   setRecipeBookmark: (id, bookmarked) => write(`/api/v1/recipes/${id}/bookmark`, bookmarked ? 'PUT' : 'DELETE', undefined, true),
+  listRecipePlans: fridgeId => request(`/api/v1/fridges/${fridgeId}/recipe-plans`),
+  createRecipePlan: (fridgeId, payload) => write(`/api/v1/fridges/${fridgeId}/recipe-plans`, 'POST', payload, true),
+  updateRecipePlan: (id, payload) => write(`/api/v1/recipe-plans/${id}`, 'PATCH', payload, true),
+  deleteRecipePlan: id => write(`/api/v1/recipe-plans/${id}`, 'DELETE', undefined, true),
   cookRecipe: (id, payload) => write(`/api/v1/recipes/${id}/cook`, 'POST', payload, true),
 
   getNameSuggestions: async ({ query = '', context = 'ingredient', limit = 6 }) => {

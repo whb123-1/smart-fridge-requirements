@@ -43,6 +43,13 @@ public class InventoryController {
         return ApiEnvelope.ok(inventory.listTransactions(principal.userId(), fridgeId, limit));
     }
 
+    @DeleteMapping("/inventory/transactions/{id}")
+    public ResponseEntity<ApiEnvelope<Void>> deleteTransaction(@AuthenticationPrincipal UserPrincipal principal, @PathVariable UUID id,
+                                                                 @RequestHeader(value = "Idempotency-Key", required = false) String key) {
+        inventory.deleteTransaction(principal.userId(), id, key);
+        return ResponseEntity.ok(ApiEnvelope.ok(null));
+    }
+
     @PostMapping("/inventory/items")
     public ApiEnvelope<InventoryContracts.ItemView> createItem(@AuthenticationPrincipal UserPrincipal principal,
                                                                 @RequestHeader(value = "Idempotency-Key", required = false) String key,

@@ -9,7 +9,7 @@ public class TelemetryProperties {
     private String serviceUsername = "service";
     private String servicePassword = "change-me";
     private String internalToken = "replace-with-an-internal-development-token";
-    private Duration emitInterval = Duration.ofMinutes(1);
+    private Duration emitInterval = Duration.ofMinutes(5);
     private boolean enabled;
     private boolean virtualSimulatorEnabled;
 

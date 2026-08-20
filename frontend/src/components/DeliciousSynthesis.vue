@@ -209,9 +209,9 @@ onBeforeUnmount(() => {
 <template>
   <section class="page-intro synthesis-intro">
     <div>
-      <p class="eyebrow">库存组合 · 即时匹配</p>
+      <p class="eyebrow">AI 调度 · 后端库存校验 · 可追踪合成会话</p>
       <h1>美味合成</h1>
-      <p>从冰箱中挑选想用的食材，让现有库存变成今晚可以动手做的菜。</p>
+      <p>从冰箱中挑选想用的食材；后端会校验真实批次与数量、创建合成会话，并在完成制作时原子扣减库存和写入饮食记录。</p>
     </div>
     <div class="synthesis-count" aria-live="polite">
       <strong>{{ selectedTypeCount }}</strong>
@@ -338,16 +338,18 @@ onBeforeUnmount(() => {
               </div>
             </section>
             <section class="result-method">
-              <h3>预计做法</h3>
+              <h3>详细制作过程</h3>
               <ol>
-                <li v-for="(step, index) in matchResult.recipe.steps" :key="step"><span>{{ index + 1 }}</span>{{ step }}</li>
+                <li v-for="(step, index) in matchResult.recipe.detailedSteps" :key="step.number || index"><span>{{ index + 1 }}</span><div><b>{{ step.title }}</b>{{ step.instruction }}<small>{{ step.heat }} · {{ step.duration }} · {{ step.checkpoint }}</small></div></li>
               </ol>
+              <h3 class="result-utensil-title">使用厨具</h3>
+              <div class="result-utensils"><span v-for="utensil in matchResult.recipe.utensils" :key="utensil">{{ utensil }}</span></div>
             </section>
           </div>
 
           <footer>
             <span :class="{ warning: matchResult.recipe.missing.length }">
-              {{ matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : '当前库存可以直接制作' }}
+              {{ matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : `当前库存可以直接制作 · AI 估算每份 ${matchResult.recipe.kcal} 千卡` }}
             </span>
             <button class="start-cooking" @click="startCooking">开始做菜</button>
           </footer>
@@ -429,6 +431,7 @@ onBeforeUnmount(() => {
 .synthesis-result-card>header{display:grid;grid-template-columns:64px minmax(0,1fr) auto;align-items:center;gap:16px;padding:21px 23px;border-bottom:1px solid #dce5ed;background:#f4faff}.result-art{display:grid;place-items:center;width:64px;height:64px;border-radius:8px;background:#fff;font-size:34px;box-shadow:inset 0 0 0 1px #dbe6ed}.synthesis-result-card h2{margin:3px 0 5px;font-size:22px}.synthesis-result-card header p:not(.eyebrow){margin:0;color:#607183;font-size:13px;line-height:1.55}.result-time{min-width:70px;padding-left:16px;border-left:1px solid #cbd8e3;text-align:center}.result-time strong,.result-time span{display:block}.result-time strong{color:#315964;font:800 27px 'Nunito Sans',sans-serif}.result-time span{color:#728191;font-size:12px}
 .result-detail-grid{display:grid;grid-template-columns:minmax(230px,.8fr) minmax(280px,1.2fr);gap:24px;padding:22px 23px}.result-detail-grid h3{margin:0 0 13px;color:#263f58;font-size:14px}.result-ingredients>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid #edf0f4;font-size:13px}.result-ingredients>div span{font-weight:700}.result-ingredients>div b{font-size:13px}.result-ingredients>div small{grid-column:1/3;color:#48806c;font-size:12px}.result-ingredients>div.missing small,.result-ingredients>div.insufficient small{color:#b43f4d}.result-ingredients>div.unknown small{color:#9b6b1c}
 .result-method ol{display:grid;gap:10px;margin:0;padding:0;list-style:none}.result-method li{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start;gap:9px;color:#556779;font-size:13px;line-height:1.65}.result-method li span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#e4f1f4;color:#286e83;font:800 12px 'Nunito Sans',sans-serif}
+.result-method li div b,.result-method li div small{display:block}.result-method li div b{color:#263f58;font-size:13px}.result-method li div small{margin-top:3px;color:#74869a;font-size:11px}.result-utensil-title{margin-top:18px!important}.result-utensils{display:flex;flex-wrap:wrap;gap:6px}.result-utensils span{padding:5px 9px;border-radius:999px;background:#edf6fb;color:#315964;font-size:11px;font-weight:700}
 .synthesis-result-card>footer{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 23px;border-top:1px solid #e3e8ef}.synthesis-result-card>footer>span{color:#39755f;font-size:13px;font-weight:700}.synthesis-result-card>footer>span.warning{color:#b4535d}.start-cooking{min-height:44px;padding:0 22px;border-radius:999px;background:#21071f;color:#fff;font-size:14px;font-weight:700}.start-cooking:hover{background:#46203e}
 .synthesis-unmatched{justify-content:flex-start;min-height:210px;background:#fff}.unmatched-mark{background:#fff1df;color:#bd6d2e}.synthesis-unmatched h2{margin:4px 0 10px;font-size:20px}.synthesis-unmatched p:not(.eyebrow){margin:0;color:#526779;font-size:14px;line-height:1.7}.synthesis-unmatched p strong{color:#b45534;font-size:16px}.synthesis-unmatched p span{display:block;margin-top:3px;color:#315964;font-weight:700}.synthesis-unmatched small{display:block;margin-top:9px;color:#798897;font-size:12px;line-height:1.55}
 @media (max-width:1100px){.synthesis-layout{grid-template-columns:280px minmax(0,1fr);gap:20px}.pot-stage{min-height:390px}.pot-content{width:min(61%,360px)}.result-detail-grid{grid-template-columns:1fr}.ingredient-option{grid-template-columns:40px minmax(0,1fr)}.ingredient-option>em{grid-column:2}.ingredient-option>strong{top:14px}.ingredient-option>.ingredient-stock-warning{grid-column:2}}

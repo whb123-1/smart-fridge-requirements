@@ -7,6 +7,7 @@ import { bindZonesToFridgeSpec } from './fridgeLayouts'
 const props = defineProps({
   zones: { type: Array, required: true },
   foods: { type: Array, required: true },
+  temperatureUnit: { type: String, default: 'C' },
 })
 
 const emit = defineEmits(['zone-navigate'])
@@ -41,6 +42,11 @@ let currentSpec = bindZonesToFridgeSpec(props.zones)
 const zoneLayout = computed(() => bindZonesToFridgeSpec(props.zones).layouts)
 const iconByKind = Object.freeze({ chill: '●', fresh: '◆', variable: '▲', freeze: '✦' })
 const iconForKind = kind => iconByKind[kind] || '●'
+const displayTemperature = value => {
+  if (value == null) return '—'
+  const celsius = Number(value)
+  return props.temperatureUnit === 'F' ? (celsius * 9 / 5 + 32).toFixed(1) : celsius.toFixed(1)
+}
 
 const palette = {
   ink: '#203a5a',
@@ -230,11 +236,11 @@ function labelTexture(zone, kind, compact = false, slotId = null) {
   context.fillStyle = accent
   const temperatureSize = compact ? 124 : 136
   context.font = `800 ${temperatureSize}px "Nunito Sans", "Noto Sans SC", sans-serif`
-  const temperatureText = zone.temp == null ? '—°' : `${Number(zone.temp).toFixed(1)}°`
+  const temperatureText = `${displayTemperature(zone.temp)}°`
   context.fillText(temperatureText, 272, 222)
   const tempWidth = context.measureText(temperatureText).width
   context.font = '800 50px "Nunito Sans", sans-serif'
-  context.fillText('C', 284 + tempWidth, 244)
+  context.fillText(props.temperatureUnit === 'F' ? 'F' : 'C', 284 + tempWidth, 244)
 
   context.fillStyle = `${accent}2c`
   context.beginPath()
@@ -823,7 +829,7 @@ onMounted(async () => {
   animate()
 })
 
-watch(() => [props.zones, props.foods], rebuildFridge, { deep: true })
+watch(() => [props.zones, props.foods, props.temperatureUnit], rebuildFridge, { deep: true })
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(frameId)
@@ -865,7 +871,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="fridge-status-slot" aria-live="polite">
         <div v-if="activeZone" class="fridge-model-status" :class="{ warning: activeZone.state === 'warning' }">
-          <span></span><b>{{ activeZone.name }}</b><small>{{ zoneItemCount(activeZone) }} 件 · {{ activeZone.temp == null ? '暂无读数' : `${Number(activeZone.temp).toFixed(1)}°C` }}</small>
+          <span></span><b>{{ activeZone.name }}</b><small>{{ zoneItemCount(activeZone) }} 件 · {{ activeZone.temp == null ? '暂无读数' : `${displayTemperature(activeZone.temp)}°${props.temperatureUnit}` }}</small>
           <button type="button" class="fridge-zone-detail" @click="openZoneDetails">查看分区</button>
           <button type="button" class="fridge-door-close" aria-label="关闭冰箱门" @click="closeDoors">×</button>
         </div>

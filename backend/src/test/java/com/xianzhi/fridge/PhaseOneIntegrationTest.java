@@ -250,11 +250,22 @@ class PhaseOneIntegrationTest {
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON).content(createBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("PACKAGE_EXPIRY"))
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("REFERENCE_TARGET"))
                 .andReturn();
         JsonNode createdData = data(created);
         String itemId = createdData.path("id").asText();
         String batchId = createdData.path("batches").path(0).path("id").asText();
+
+        MvcResult initialHistory = mvc.perform(get("/api/v1/inventory/transactions")
+                        .header("Authorization", bearer(owner)).param("fridgeId", fridge.id()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1)).andReturn();
+        String transactionId = data(initialHistory).path(0).path("id").asText();
+        mvc.perform(delete("/api/v1/inventory/transactions/{id}", transactionId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/inventory/transactions")
+                        .header("Authorization", bearer(owner)).param("fridgeId", fridge.id()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
 
         mvc.perform(post("/api/v1/inventory/items")
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
@@ -270,13 +281,13 @@ class PhaseOneIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"zoneId\":\"" + fridge.secondZoneId() + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.packageExpiresAt").value("2030-08-18T00:00:00Z"));
+                .andExpect(jsonPath("$.data.packageExpiresAt").doesNotExist());
         mvc.perform(patch("/api/v1/inventory/batches/{id}", batchId)
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"packageExpiresAt\":null}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.packageExpiresAt").doesNotExist())
-                .andExpect(jsonPath("$.data.assessment.estimationSource").value("USER_SHELF_LIFE"));
+                .andExpect(jsonPath("$.data.assessment.estimationSource").value("REFERENCE_TARGET"));
 
         Session intruder = register("inventory-other-" + UUID.randomUUID() + "@example.com");
         mvc.perform(get("/api/v1/inventory/items").header("Authorization", bearer(intruder)))
@@ -310,7 +321,7 @@ class PhaseOneIntegrationTest {
     }
 
     @Test
-    void expiryUsesDocumentedPriorityAndUnknownForUncataloguedFood() throws Exception {
+    void expiryUsesGlobalEstimatorForCataloguedAndCustomFood() throws Exception {
         Session account = register("expiry-" + UUID.randomUUID() + "@example.com");
         FridgeFixture fridge = initialize(account);
         String knownBody = objectMapper.writeValueAsString(Map.of(
@@ -320,7 +331,7 @@ class PhaseOneIntegrationTest {
                         .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content(knownBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("REFERENCE_TARGET"))
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("CATALOG_PROFILE"))
                 .andExpect(jsonPath("$.data.batches[0].assessment.estimatedExpiryAt").exists());
 
         String customBody = objectMapper.writeValueAsString(Map.of(
@@ -331,8 +342,8 @@ class PhaseOneIntegrationTest {
                         .header("Authorization", bearer(account)).header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content(customBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.batches[0].assessment.safetyStatus").value("UNKNOWN"))
-                .andExpect(jsonPath("$.data.batches[0].assessment.estimatedExpiryAt").doesNotExist());
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimationSource").value("CATALOG_PROFILE"))
+                .andExpect(jsonPath("$.data.batches[0].assessment.estimatedExpiryAt").exists());
 
         MvcResult suggestion = mvc.perform(get("/api/v1/catalog/suggestions")
                         .header("Authorization", bearer(account)).param("query", "\u9e21\u86cb"))
@@ -460,6 +471,9 @@ class PhaseOneIntegrationTest {
         assertThat(data(catalog).size()).isGreaterThanOrEqualTo(25);
         Set<String> catalogImages = new HashSet<>();
         for (JsonNode recipe : data(catalog)) {
+            assertThat(recipe.path("total").path("calories").isNumber())
+                    .as("recipe %s must expose an AI catalog calorie estimate", recipe.path("name").asText())
+                    .isTrue();
             String imageUrl = recipe.path("imageUrl").asText();
             if (!imageUrl.isBlank()) catalogImages.add(imageUrl);
         }
@@ -742,6 +756,51 @@ class PhaseOneIntegrationTest {
                 .andExpect(status().isOk());
         Long remaining = jdbc.queryForObject("select count(*) from meal_record where id=UUID_TO_BIN(?)", Long.class, mealId);
         assertThat(remaining).isZero();
+    }
+
+    @Test
+    void plannedRecipesArePersistedPerUserAndFridge() throws Exception {
+        Session owner = register("recipe-plan-owner-" + UUID.randomUUID() + "@example.com");
+        Session stranger = register("recipe-plan-stranger-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(owner);
+        MvcResult recipeResult = mvc.perform(get("/api/v1/recipes").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andReturn();
+        String recipeId = data(recipeResult).path(0).path("id").asText();
+
+        MvcResult created = mvc.perform(post("/api/v1/fridges/{fridgeId}/recipe-plans", fridge.id())
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"recipeId\":\"" + recipeId + "\",\"servings\":2}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recipeId").value(recipeId))
+                .andExpect(jsonPath("$.data.servings").value(2))
+                .andReturn();
+        String planId = data(created).path("id").asText();
+
+        mvc.perform(get("/api/v1/fridges/{fridgeId}/recipe-plans", fridge.id())
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(planId))
+                .andExpect(jsonPath("$.data[0].recipe.ingredients").isArray());
+        mvc.perform(post("/api/v1/fridges/{fridgeId}/recipe-plans", fridge.id())
+                        .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"recipeId\":\"" + recipeId + "\",\"servings\":1}"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("FRIDGE_NOT_FOUND"));
+        mvc.perform(patch("/api/v1/recipe-plans/{id}", planId)
+                        .header("Authorization", bearer(stranger)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"servings\":3}"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("RECIPE_PLAN_NOT_FOUND"));
+        mvc.perform(patch("/api/v1/recipe-plans/{id}", planId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"servings\":3}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.servings").value(3));
+        mvc.perform(delete("/api/v1/recipe-plans/{id}", planId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/fridges/{fridgeId}/recipe-plans", fridge.id())
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
     }
 
     private String demoteAfter(CountDownLatch start, UUID actor, UUID target) throws Exception {

@@ -145,8 +145,8 @@ public class ShoppingService {
         requireQuantityUnitPair(quantity, unit);
         if (quantity == null || quantity.signum() <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "A positive quantity is required");
         FoodCategory category = parseCategory(item.getCategory());
-        InventoryContracts.BatchRequest batch = new InventoryContracts.BatchRequest(request.zoneId(), request.storedAt(), null, null,
-                request.shelfLifeDays(), quantity, unit.trim(), null);
+        InventoryContracts.BatchRequest batch = new InventoryContracts.BatchRequest(request.zoneId(), request.storedAt(), null,
+                quantity, unit.trim(), null);
         InventoryContracts.CreateItemRequest create = new InventoryContracts.CreateItemRequest(fridgeId, item.getName(), category, null,
                 batch.unit(), List.of(batch));
         inventory.createItem(userId, "shopping-store:" + key, create);

@@ -171,6 +171,13 @@ paths:
         - { in: query, name: fridgeId, required: true, schema: { type: string, format: uuid } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /inventory/transactions/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    delete:
+      operationId: deleteInventoryTransactionHistory
+      description: Soft-deletes a history entry without reversing the underlying inventory quantity.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
   /inventory/items/{id}:
     parameters: [{ $ref: '#/components/parameters/ResourceId' }]
     patch:
@@ -396,6 +403,28 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CookRecipeRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /fridges/{fridgeId}/recipe-plans:
+    parameters:
+      - { in: path, name: fridgeId, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listRecipePlans
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+    post:
+      operationId: createRecipePlan
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateRecipePlanRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+  /recipe-plans/{id}:
+    parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+    patch:
+      operationId: updateRecipePlan
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateRecipePlanRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
+    delete:
+      operationId: deleteRecipePlan
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { $ref: '#/components/responses/EmptySuccess' }, '404': { $ref: '#/components/responses/GenericError' } }
   /admin/recipe-sources:
     get: { operationId: listRecipeSources, responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '403': { $ref: '#/components/responses/GenericError' } } }
     post:
@@ -802,8 +831,6 @@ components:
         zoneId: { type: string, format: uuid, nullable: true }
         storedAt: { type: string, format: date-time }
         openedAt: { type: string, format: date-time, nullable: true }
-        packageExpiresAt: { type: string, format: date-time, nullable: true }
-        shelfLifeDays: { type: integer, minimum: 0 }
         quantity: { type: number, minimum: 0 }
         unit: { type: string, maxLength: 24 }
         remindAt: { type: string, format: date-time, nullable: true }
@@ -819,8 +846,6 @@ components:
       properties:
         zoneId: { type: string, format: uuid, nullable: true }
         openedAt: { type: string, format: date-time, nullable: true }
-        packageExpiresAt: { type: string, format: date-time, nullable: true }
-        shelfLifeDays: { type: integer, minimum: 0 }
         remindAt: { type: string, format: date-time, nullable: true }
     UpdateZoneRequest:
       type: object
@@ -870,7 +895,6 @@ components:
         quantity: { type: number, minimum: 0 }
         unit: { type: string, maxLength: 24 }
         storedAt: { type: string, format: date-time }
-        shelfLifeDays: { type: integer, minimum: 0 }
     UpdateNotificationRequest:
       type: object
       properties:
@@ -954,6 +978,18 @@ components:
               unit: { type: string }
         recordMeal: { type: boolean }
         mealAt: { type: string, format: date-time }
+        synthesisId: { type: string, format: uuid, description: Backend synthesis session to execute atomically with cooking. }
+    CreateRecipePlanRequest:
+      type: object
+      required: [recipeId, servings]
+      properties:
+        recipeId: { type: string, format: uuid }
+        servings: { type: number, minimum: 0.1 }
+    UpdateRecipePlanRequest:
+      type: object
+      required: [servings]
+      properties:
+        servings: { type: number, minimum: 0.1 }
     EstimateNutritionRequest:
       type: object
       required: [dishName]

@@ -68,16 +68,19 @@ public class InventoryService {
     private final AuditService audit;
     private final Clock clock;
     private final JdbcTemplate jdbc;
+    private final ShelfLifeEstimator shelfLifeEstimator;
 
     public InventoryService(FridgeRepository fridges, FridgeZoneRepository zones, FoodCatalogRepository catalogs,
                             FoodWeightEstimateRepository weights, FoodStorageProfileRepository profiles,
                             InventoryItemRepository items, InventoryBatchRepository batches,
                             InventoryTransactionRepository transactions, ShelfLifeAssessmentRepository assessments,
                             IdempotencyRecordRepository idempotency, OutboxEventRepository outbox,
-                            ObjectMapper mapper, AuditService audit, Clock clock, JdbcTemplate jdbc) {
+                            ObjectMapper mapper, AuditService audit, Clock clock, JdbcTemplate jdbc,
+                            ShelfLifeEstimator shelfLifeEstimator) {
         this.fridges = fridges; this.zones = zones; this.catalogs = catalogs; this.weights = weights; this.profiles = profiles;
         this.items = items; this.batches = batches; this.transactions = transactions; this.assessments = assessments;
         this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit; this.clock = clock; this.jdbc = jdbc;
+        this.shelfLifeEstimator = shelfLifeEstimator;
     }
 
     @Transactional(readOnly = true)
@@ -102,7 +105,7 @@ public class InventoryService {
                   from inventory_transaction t
                   join inventory_batch b on b.id=t.batch_id
                   join inventory_item i on i.id=b.item_id
-                 where t.actor_user_id=UUID_TO_BIN(?) and i.fridge_id=UUID_TO_BIN(?)
+                  where t.actor_user_id=UUID_TO_BIN(?) and i.fridge_id=UUID_TO_BIN(?) and t.deleted_at is null
                  order by t.created_at desc limit ?
                 """, (rs, row) -> new InventoryContracts.TransactionView(
                 UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("batch_id")),
@@ -110,6 +113,19 @@ public class InventoryService {
                 rs.getBigDecimal("before_quantity"), rs.getBigDecimal("after_quantity"),
                 rs.getBigDecimal("quantity_delta"), rs.getString("unit"), rs.getString("source_type"),
                 rs.getTimestamp("created_at").toInstant()), userId.toString(), fridgeId.toString(), safeLimit);
+    }
+
+    @Transactional
+    public void deleteTransaction(UUID userId, UUID transactionId, String key) {
+        requireKey(key);
+        String path = "/api/v1/inventory/transactions/" + transactionId;
+        String requestHash = hash("DELETE", path, transactionId);
+        Map<String, Boolean> replay = replay(userId, key, requestHash, Map.class);
+        if (replay != null) return;
+        int changed = jdbc.update("update inventory_transaction t join inventory_batch b on b.id=t.batch_id join inventory_item i on i.id=b.item_id set t.deleted_at=UTC_TIMESTAMP(3) where t.id=UUID_TO_BIN(?) and t.actor_user_id=UUID_TO_BIN(?) and i.user_id=UUID_TO_BIN(?) and t.deleted_at is null", transactionId.toString(), userId.toString(), userId.toString());
+        if (changed == 0) throw new ApiException(HttpStatus.NOT_FOUND, "INVENTORY_TRANSACTION_NOT_FOUND", "Inventory history entry not found");
+        saveIdempotency(userId, key, requestHash, "DELETE", path, Map.of("deleted", true));
+        audit.record(userId, "INVENTORY_HISTORY_DELETED");
     }
 
     @Transactional
@@ -209,8 +225,8 @@ public class InventoryService {
         batch.updateSchedule(
                 request.hasZoneId() ? request.zoneId() : batch.getZoneId(),
                 request.hasOpenedAt() ? request.openedAt() : batch.getOpenedAt(),
-                request.hasPackageExpiresAt() ? request.packageExpiresAt() : batch.getPackageExpiresAt(),
-                request.hasShelfLifeDays() ? request.shelfLifeDays() : batch.getShelfLifeDays(),
+                null,
+                null,
                 request.hasRemindAt() ? request.remindAt() : batch.getRemindAt());
         batches.save(batch);
         FoodCatalog catalog = item.getCatalogId() == null ? null : catalogs.findById(item.getCatalogId()).orElse(null);
@@ -319,38 +335,22 @@ public class InventoryService {
     private InventoryBatch createBatch(InventoryItem item, InventoryContracts.BatchRequest request, FoodCatalog catalog, Instant now) {
         Instant storedAt = request.storedAt() == null ? now : request.storedAt();
         if (request.quantity().signum() < 0) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Quantity cannot be negative");
-        return new InventoryBatch(UuidV7.next(), item.getId(), request.zoneId(), storedAt, request.openedAt(), request.packageExpiresAt(),
-                request.shelfLifeDays(), request.quantity(), request.unit().trim(), request.remindAt());
+        return new InventoryBatch(UuidV7.next(), item.getId(), request.zoneId(), storedAt, request.openedAt(), null,
+                null, request.quantity(), request.unit().trim(), request.remindAt());
     }
 
     private void recalculate(InventoryBatch batch, InventoryItem item, FoodCatalog catalog) {
         Instant now = clock.instant();
-        Instant base = null;
-        AssessmentSource source;
-        Integer profileVersion = null;
-        String explanation;
-        if (batch.getPackageExpiresAt() != null) { base = batch.getPackageExpiresAt(); source = AssessmentSource.PACKAGE_EXPIRY; explanation = "使用用户录入的包装到期时间"; }
-        else if (batch.getShelfLifeDays() != null) { base = batch.getStoredAt().plus(Duration.ofDays(batch.getShelfLifeDays())); source = AssessmentSource.USER_SHELF_LIFE; explanation = "使用用户录入的参考保质期"; }
-        else if (catalog != null) {
-            FoodStorageProfile profile = chooseProfile(item.getCategory(), batch.getZoneId());
-            if (profile != null) {
-                Integer hours = batch.getOpenedAt() != null ? profile.getOpenedHours() : profile.getUnopenedHours();
-                if (hours != null) base = (batch.getOpenedAt() == null ? batch.getStoredAt() : batch.getOpenedAt()).plus(Duration.ofHours(hours));
-                profileVersion = profile.getProfileVersion();
-            }
-            if (base == null && catalog.getDefaultShelfLifeDays() != null) {
-                base = batch.getStoredAt().plus(Duration.ofDays(catalog.getDefaultShelfLifeDays()));
-            }
-            source = batch.getZoneId() == null ? AssessmentSource.REFERENCE_DEFAULT : AssessmentSource.REFERENCE_TARGET;
-            explanation = base == null ? "没有足够的日期或储存档案依据" : "按分区目标环境参考估算，未接入实测传感器";
-        } else {
-            source = batch.getZoneId() == null ? AssessmentSource.REFERENCE_DEFAULT : AssessmentSource.REFERENCE_TARGET;
-            explanation = "自定义食材没有目录或日期依据";
-        }
+        FoodStorageProfile profile = chooseProfile(item.getCategory(), batch.getZoneId());
+        String zoneKind = batch.getZoneId() == null ? null : zones.findById(batch.getZoneId()).map(zone -> zone.getKind().name()).orElse(null);
+        ShelfLifeEstimator.Estimate estimate = shelfLifeEstimator.estimate(item, batch, catalog, profile, zoneKind, now);
+        Instant base = estimate.baseExpiryAt();
+        AssessmentSource source = estimate.source();
+        Integer profileVersion = profile == null ? null : profile.getProfileVersion();
         AssessmentStatus status = base == null ? AssessmentStatus.UNKNOWN : base.isBefore(now) ? AssessmentStatus.EXPIRED
                 : !base.isAfter(now.plus(Duration.ofDays(3))) ? AssessmentStatus.EXPIRING_SOON : AssessmentStatus.ADVISORY_ONLY;
         ShelfLifeAssessment assessment = new ShelfLifeAssessment(UuidV7.next(), batch.getId(), profileVersion, base, base, source,
-                base == null ? "LOW" : source == AssessmentSource.PACKAGE_EXPIRY ? "HIGH" : "MEDIUM", status, explanation);
+                estimate.confidence(), status, estimate.explanation());
         assessments.save(assessment);
     }
 
@@ -358,7 +358,8 @@ public class InventoryService {
         String resolvedZoneKind = zoneId == null ? null : zones.findById(zoneId).map(zone -> zone.getKind().name()).orElse(null);
         List<FoodStorageProfile> candidates = profiles.findByCategoryOrderByProfileVersionDesc(category);
         return candidates.stream().filter(profile -> resolvedZoneKind != null && resolvedZoneKind.equals(profile.getZoneKind())).findFirst()
-                .orElseGet(() -> candidates.stream().filter(profile -> profile.getZoneKind() == null).findFirst().orElse(null));
+                .orElseGet(() -> candidates.stream().filter(profile -> profile.getZoneKind() == null).findFirst()
+                        .orElseGet(() -> candidates.stream().findFirst().orElse(null)));
     }
 
     private InventoryContracts.ItemView toItemView(InventoryItem item, UUID zoneId, String status) {
@@ -374,8 +375,8 @@ public class InventoryService {
     }
 
     private InventoryContracts.BatchView toBatchView(InventoryBatch batch) {
-        return new InventoryContracts.BatchView(batch.getId(), batch.getZoneId(), batch.getStoredAt(), batch.getOpenedAt(), batch.getPackageExpiresAt(),
-                batch.getShelfLifeDays(), batch.getInitialQuantity(), batch.getRemainingQuantity(), batch.getUnit(), batch.getStatus(), batch.getRemindAt(),
+        return new InventoryContracts.BatchView(batch.getId(), batch.getZoneId(), batch.getStoredAt(), batch.getOpenedAt(),
+                batch.getInitialQuantity(), batch.getRemainingQuantity(), batch.getUnit(), batch.getStatus(), batch.getRemindAt(),
                 assessments.findFirstByBatchIdOrderByCalculatedAtDesc(batch.getId()).map(this::toAssessment).orElse(null));
     }
 

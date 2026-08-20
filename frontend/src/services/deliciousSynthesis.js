@@ -1,4 +1,5 @@
 import { api } from './api.js'
+import { buildRecipeGuide } from './recipeGuide.js'
 
 function displayUnit(value) {
   return ({ g: '克', kg: '千克', piece: '个', box: '盒', bottle: '瓶', bag: '袋', cup: '杯', ml: '毫升', serving: '份' })[value] || value || ''
@@ -14,7 +15,7 @@ function mapRecipe(recipe, supplied) {
   const components = (recipe.ingredients || []).filter(item => item.role !== 'SEASONING')
   const missing = recipe.missing || []
   const availableCount = components.filter(item => !missing.some(name => similar(name, item.name))).length
-  return {
+  const mapped = {
     id: recipe.id,
     name: recipe.name,
     desc: recipe.description || '',
@@ -45,7 +46,12 @@ function mapRecipe(recipe, supplied) {
     collected: Boolean(recipe.bookmarked),
     source: recipe.source,
     attribution: recipe.attribution,
+    detailedSteps: recipe.detailedSteps || [],
+    utensils: recipe.utensils || [],
+    nutritionSource: recipe.nutritionSource || 'AI_RECIPE_SEARCH',
   }
+  const guide = buildRecipeGuide(mapped)
+  return { ...mapped, detailedSteps: mapped.detailedSteps.length ? mapped.detailedSteps : guide.steps, utensils: mapped.utensils.length ? mapped.utensils : guide.utensils }
 }
 
 export async function matchRecipeCombination(payload, { signal } = {}) {
@@ -59,10 +65,10 @@ export async function matchRecipeCombination(payload, { signal } = {}) {
   const result = await api.matchRecipes(ingredients)
   if (signal?.aborted) throw new DOMException('Synthesis request aborted', 'AbortError')
   const recipe = result?.recipes?.[0]
-  if (recipe) return { requestId: null, status: 'matched', recipe: mapRecipe(recipe, ingredients), suggestion: null }
+  if (recipe) return { requestId: result?.synthesisId || null, status: 'matched', recipe: { ...mapRecipe(recipe, ingredients), synthesisId: result?.synthesisId || null }, suggestion: null }
   const ingredientName = result?.suggestions?.[0] || null
   return {
-    requestId: null,
+    requestId: result?.synthesisId || null,
     status: 'unmatched',
     recipe: null,
     suggestion: ingredientName ? {

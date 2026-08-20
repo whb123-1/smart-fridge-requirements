@@ -59,7 +59,13 @@ public class FridgeZone {
 
     public void updateSettings(String name, BigDecimal targetTemperatureC, BigDecimal targetHumidityPct) {
         this.name = name;
+        BigDecimal temperatureShift = targetTemperatureC.subtract(this.targetTemperatureC);
+        BigDecimal humidityShift = targetHumidityPct.subtract(this.targetHumidityPct);
         this.targetTemperatureC = targetTemperatureC;
         this.targetHumidityPct = targetHumidityPct;
+        this.safeTemperatureMinC = this.safeTemperatureMinC.add(temperatureShift);
+        this.safeTemperatureMaxC = this.safeTemperatureMaxC.add(temperatureShift);
+        this.safeHumidityMinPct = this.safeHumidityMinPct.add(humidityShift).max(BigDecimal.ZERO).min(BigDecimal.valueOf(100));
+        this.safeHumidityMaxPct = this.safeHumidityMaxPct.add(humidityShift).max(BigDecimal.ZERO).min(BigDecimal.valueOf(100));
     }
 }

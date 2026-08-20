@@ -74,6 +74,23 @@ test('the browser does not expose a manual sensor provisioning request', () => {
   assert.equal(typeof api.unbindDeviceSensor, 'undefined')
 })
 
+test('recipe planning uses fridge-scoped reads and idempotent writes', async t => {
+  const calls = []
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response([]) }
+
+  await api.listRecipePlans('fridge-id')
+  await api.createRecipePlan('fridge-id', { recipeId: 'recipe-id', servings: 2 })
+  await api.updateRecipePlan('plan-id', { servings: 3 })
+  await api.deleteRecipePlan('plan-id')
+
+  assert.equal(calls[0].url, '/api/v1/fridges/fridge-id/recipe-plans')
+  assert.equal(calls[0].options.method, undefined)
+  assert.deepEqual(calls.slice(1).map(call => call.options.method), ['POST', 'PATCH', 'DELETE'])
+  calls.slice(1).forEach(call => assert.match(call.options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/))
+})
+
 test('recipe, meal, preference and assistant flows use v1 APIs with idempotent writes', async t => {
   const calls = []
   const previousFetch = globalThis.fetch

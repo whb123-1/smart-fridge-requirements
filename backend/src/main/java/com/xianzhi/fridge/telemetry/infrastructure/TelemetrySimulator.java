@@ -7,6 +7,8 @@ import com.xianzhi.fridge.fridge.domain.DeviceType;
 import com.xianzhi.fridge.fridge.domain.SensorMetric;
 import com.xianzhi.fridge.fridge.infrastructure.Device;
 import com.xianzhi.fridge.fridge.infrastructure.DeviceRepository;
+import com.xianzhi.fridge.fridge.infrastructure.FridgeZone;
+import com.xianzhi.fridge.fridge.infrastructure.FridgeZoneRepository;
 import com.xianzhi.fridge.fridge.infrastructure.SensorProfile;
 import com.xianzhi.fridge.fridge.infrastructure.SensorProfileRepository;
 import com.xianzhi.fridge.fridge.infrastructure.SensorSlot;
@@ -46,6 +48,7 @@ public class TelemetrySimulator {
     private final DeviceRepository devices;
     private final SensorSlotRepository sensors;
     private final SensorProfileRepository profiles;
+    private final FridgeZoneRepository zones;
     private final TelemetryProperties properties;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -54,8 +57,10 @@ public class TelemetrySimulator {
     private MqttAsyncClient client;
 
     public TelemetrySimulator(DeviceRepository devices, SensorSlotRepository sensors, SensorProfileRepository profiles,
+                              FridgeZoneRepository zones,
                               TelemetryProperties properties, ObjectMapper mapper, Clock clock, MeterRegistry meters) {
         this.devices = devices; this.sensors = sensors; this.profiles = profiles;
+        this.zones = zones;
         this.properties = properties; this.mapper = mapper; this.clock = clock; this.meters = meters;
         meters.gauge("xianzhi.virtual_simulator.connected", this, value -> value.connected() ? 1 : 0);
     }
@@ -63,7 +68,7 @@ public class TelemetrySimulator {
     @EventListener(ApplicationReadyEvent.class)
     public void start() { connectIfNeeded(); }
 
-    @Scheduled(fixedDelayString = "${app.telemetry.emit-interval:PT5S}", initialDelayString = "PT5S")
+    @Scheduled(fixedDelayString = "${app.telemetry.emit-interval:PT5M}", initialDelayString = "${app.telemetry.emit-interval:PT5M}")
     public void emit() {
         connectIfNeeded();
         if (!connected()) return;
@@ -75,12 +80,13 @@ public class TelemetrySimulator {
 
     private void publish(Device device, SensorSlot sensor, Instant now) {
         SensorProfile profile = profiles.findById(sensor.getProfileId()).orElse(null);
-        if (profile == null) return;
-        BigDecimal midpoint = profile.getNormalMin().add(profile.getNormalMax()).divide(BigDecimal.valueOf(2), 3, RoundingMode.HALF_UP);
-        BigDecimal baseline = sensor.getLastValue() == null ? midpoint : sensor.getLastValue();
-        BigDecimal amplitude = sensor.getMetric() == SensorMetric.TEMPERATURE ? BigDecimal.valueOf(0.3) : BigDecimal.valueOf(2.0);
-        BigDecimal value = baseline.add(amplitude.multiply(BigDecimal.valueOf(random.nextDouble() * 2 - 1)))
-                .max(profile.getNormalMin()).min(profile.getNormalMax()).setScale(3, RoundingMode.HALF_UP);
+        FridgeZone zone = zones.findById(device.getZoneId()).orElse(null);
+        if (profile == null || zone == null) return;
+        BigDecimal target = sensor.getMetric() == SensorMetric.TEMPERATURE ? zone.getTargetTemperatureC() : zone.getTargetHumidityPct();
+        BigDecimal safeMin = sensor.getMetric() == SensorMetric.TEMPERATURE ? zone.getSafeTemperatureMinC() : zone.getSafeHumidityMinPct();
+        BigDecimal safeMax = sensor.getMetric() == SensorMetric.TEMPERATURE ? zone.getSafeTemperatureMaxC() : zone.getSafeHumidityMaxPct();
+        BigDecimal value = simulatedValue(sensor.getMetric(), sensor.getLastValue(), target, safeMin, safeMax,
+                profile.getPhysicalMin(), profile.getPhysicalMax(), random.nextDouble(), random.nextDouble());
         TelemetryContracts.Message payload = new TelemetryContracts.Message(UUID.randomUUID(), now, "virtual-simulator",
                 List.of(new TelemetryContracts.Reading(sensor.getId(), sensor.getMetric(), value,
                         sensor.getMetric() == SensorMetric.TEMPERATURE ? "C" : "PERCENT", ReadingQuality.GOOD)));
@@ -96,6 +102,22 @@ public class TelemetrySimulator {
             log.warn("virtual telemetry publish failed deviceId={}, sensorId={}, reason={}",
                     device.getId(), sensor.getId(), exception.getMessage());
         }
+    }
+
+    static BigDecimal simulatedValue(SensorMetric metric, BigDecimal lastValue, BigDecimal target,
+                                     BigDecimal safeMin, BigDecimal safeMax, BigDecimal physicalMin, BigDecimal physicalMax,
+                                     double incidentRoll, double jitterRoll) {
+        BigDecimal normalAmplitude = metric == SensorMetric.TEMPERATURE ? BigDecimal.valueOf(0.35) : BigDecimal.valueOf(2.5);
+        BigDecimal center = lastValue == null ? target : lastValue.multiply(BigDecimal.valueOf(0.35)).add(target.multiply(BigDecimal.valueOf(0.65)));
+        BigDecimal jitter = normalAmplitude.multiply(BigDecimal.valueOf(jitterRoll * 2 - 1));
+        BigDecimal value;
+        if (incidentRoll < 0.02) {
+            BigDecimal excursion = metric == SensorMetric.TEMPERATURE ? BigDecimal.valueOf(0.6 + jitterRoll * 0.8) : BigDecimal.valueOf(2 + jitterRoll * 4);
+            value = jitterRoll < 0.5 ? safeMin.subtract(excursion) : safeMax.add(excursion);
+        } else {
+            value = center.add(jitter).max(safeMin).min(safeMax);
+        }
+        return value.max(physicalMin).min(physicalMax).setScale(3, RoundingMode.HALF_UP);
     }
 
     private synchronized void connectIfNeeded() {

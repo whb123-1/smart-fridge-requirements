@@ -37,8 +37,6 @@ public final class InventoryContracts {
             UUID zoneId,
             Instant storedAt,
             Instant openedAt,
-            Instant packageExpiresAt,
-            @Min(0) @Max(36500) Integer shelfLifeDays,
             @NotNull @DecimalMin("0") BigDecimal quantity,
             @NotBlank @Size(max = 24) String unit,
             Instant remindAt) { }
@@ -52,31 +50,21 @@ public final class InventoryContracts {
     public static final class UpdateBatchRequest {
         private UUID zoneId;
         private Instant openedAt;
-        private Instant packageExpiresAt;
-        @Min(0) @Max(36500) private Integer shelfLifeDays;
         private Instant remindAt;
         private boolean zoneIdPresent;
         private boolean openedAtPresent;
-        private boolean packageExpiresAtPresent;
-        private boolean shelfLifeDaysPresent;
         private boolean remindAtPresent;
 
         public UUID zoneId() { return zoneId; }
         public Instant openedAt() { return openedAt; }
-        public Instant packageExpiresAt() { return packageExpiresAt; }
-        public Integer shelfLifeDays() { return shelfLifeDays; }
         public Instant remindAt() { return remindAt; }
 
         @JsonSetter("zoneId") public void setZoneId(UUID value) { zoneId = value; zoneIdPresent = true; }
         @JsonSetter("openedAt") public void setOpenedAt(Instant value) { openedAt = value; openedAtPresent = true; }
-        @JsonSetter("packageExpiresAt") public void setPackageExpiresAt(Instant value) { packageExpiresAt = value; packageExpiresAtPresent = true; }
-        @JsonSetter("shelfLifeDays") public void setShelfLifeDays(Integer value) { shelfLifeDays = value; shelfLifeDaysPresent = true; }
         @JsonSetter("remindAt") public void setRemindAt(Instant value) { remindAt = value; remindAtPresent = true; }
 
         @JsonIgnore public boolean hasZoneId() { return zoneIdPresent; }
         @JsonIgnore public boolean hasOpenedAt() { return openedAtPresent; }
-        @JsonIgnore public boolean hasPackageExpiresAt() { return packageExpiresAtPresent; }
-        @JsonIgnore public boolean hasShelfLifeDays() { return shelfLifeDaysPresent; }
         @JsonIgnore public boolean hasRemindAt() { return remindAtPresent; }
 
         @JsonIgnore
@@ -84,8 +72,6 @@ public final class InventoryContracts {
             Map<String, Object> values = new LinkedHashMap<>();
             if (zoneIdPresent) values.put("zoneId", zoneId);
             if (openedAtPresent) values.put("openedAt", openedAt);
-            if (packageExpiresAtPresent) values.put("packageExpiresAt", packageExpiresAt);
-            if (shelfLifeDaysPresent) values.put("shelfLifeDays", shelfLifeDays);
             if (remindAtPresent) values.put("remindAt", remindAt);
             return values;
         }
@@ -103,8 +89,8 @@ public final class InventoryContracts {
             String explanation, String environmentImpacts, Instant calculatedAt) { }
 
     public record BatchView(
-            UUID id, UUID zoneId, Instant storedAt, Instant openedAt, Instant packageExpiresAt,
-            Integer shelfLifeDays, BigDecimal initialQuantity, BigDecimal remainingQuantity, String unit,
+            UUID id, UUID zoneId, Instant storedAt, Instant openedAt,
+            BigDecimal initialQuantity, BigDecimal remainingQuantity, String unit,
             BatchStatus status, Instant remindAt, AssessmentView assessment) { }
 
     public record ItemView(

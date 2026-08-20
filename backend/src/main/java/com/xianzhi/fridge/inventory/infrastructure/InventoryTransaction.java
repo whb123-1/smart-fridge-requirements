@@ -28,6 +28,7 @@ public class InventoryTransaction {
     @JdbcTypeCode(Types.BINARY) @Column(name = "actor_user_id", nullable = false) private UUID actorUserId;
     @Column(name = "idempotency_key", length = 128) private String idempotencyKey;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
+    @Column(name = "deleted_at") private Instant deletedAt;
     protected InventoryTransaction() { }
     public InventoryTransaction(UUID id, UUID batchId, TransactionType type, BigDecimal beforeQuantity,
                                 BigDecimal afterQuantity, BigDecimal quantityDelta, String unit,
@@ -38,4 +39,5 @@ public class InventoryTransaction {
         this.createdAt = Instant.now();
     }
     public UUID getId() { return id; }
+    public Instant getDeletedAt() { return deletedAt; }
 }

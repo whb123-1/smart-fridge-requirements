@@ -61,7 +61,7 @@ app:
     service-username: ${MQTT_SERVICE_USERNAME:service}
     service-password: ${MQTT_SERVICE_PASSWORD:change-me}
     internal-token: ${MQTT_INTERNAL_TOKEN:replace-with-an-internal-development-token}
-    emit-interval: ${MQTT_SIMULATOR_EMIT_INTERVAL:PT1M}
+    emit-interval: ${MQTT_SIMULATOR_EMIT_INTERVAL:PT5M}
     enabled: ${MQTT_ENABLED:false}
     virtual-simulator-enabled: ${VIRTUAL_TELEMETRY_ENABLED:false}
     environment-aggregation-interval: ${ENVIRONMENT_AGGREGATION_INTERVAL:PT5M}
