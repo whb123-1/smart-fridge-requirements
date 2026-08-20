@@ -1,3 +1,5 @@
+import { createIdempotencyKey } from './idempotency.js'
+
 const env = import.meta.env || {}
 const API_BASE_URL = String(env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 let accessToken = ''
@@ -54,11 +56,6 @@ async function request(path, options = {}) {
   return payload?.data
 }
 
-function idempotencyKey() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  return `idempotency-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
 function queryString(params) {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -70,7 +67,7 @@ function queryString(params) {
 
 const write = (path, method, body, idempotent = false) => request(path, {
   method,
-  headers: idempotent ? { 'Idempotency-Key': idempotencyKey() } : {},
+  headers: idempotent ? { 'Idempotency-Key': createIdempotencyKey() } : {},
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 })
 

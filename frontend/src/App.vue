@@ -3,7 +3,6 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, r
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './services/api'
 import { logout, session, setFridge } from './session'
-import pixelPet from './assets/xianling-pixel-pet-transparent.png'
 import AssistantPet from './components/AssistantPet.vue'
 import RecipeCartoonArt from './components/RecipeCartoonArt.vue'
 import NameSuggestionInput from './components/NameSuggestionInput.vue'
@@ -38,6 +37,7 @@ const recipeFilter = ref('全部推荐')
 const shoppingGroup = ref('全部')
 const assistantInput = ref('')
 const assistantConversationId = ref(null)
+const assistantPendingRequests = ref(0)
 const assistantProposals = reactive([])
 const assistantActionBusy = ref(null)
 const voiceFileInput = ref(null)
@@ -1142,6 +1142,7 @@ async function sendAssistantMessage(preset = '') {
   if (!text) return
   assistantMessages.push({ id: `user-${Date.now()}`, role: 'user', text })
   assistantInput.value = ''
+  assistantPendingRequests.value += 1
   try {
     if (!assistantConversationId.value) {
       const conversation = await api.createAssistantConversation('冰箱助手')
@@ -1158,6 +1159,8 @@ async function sendAssistantMessage(preset = '') {
     assistantProposals.splice(0, assistantProposals.length, ...(response.actionProposals || []))
   } catch (exception) {
     assistantMessages.push({ id: `error-${Date.now()}`, role: 'assistant', text: exception.message || '助手暂时不可用，请稍后重试。' })
+  } finally {
+    assistantPendingRequests.value = Math.max(0, assistantPendingRequests.value - 1)
   }
 }
 
@@ -1292,6 +1295,6 @@ async function dismissAssistantAction(proposal) {
     <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="ai-field-note"><span v-html="icon('spark', 16)"></span>入库后由 AI 重新计算全局保鲜期限，并吸收后续传感器风险。</div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
     <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">AI 库存配菜</p><h2>选择优先食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择想优先消耗的食材，AI 会结合完整库存、饮食偏好和基础菜谱找出 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于生成菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 搜索中' : `用已选食材找菜谱 (${selectedInventoryFoods.length})` }}</button></div></form></div>
     <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal ai-recipe-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 搜索与生成</p><h2>描述你想要的菜谱</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜谱描述<textarea v-model.trim="recipeNameDraft" rows="4" maxlength="500" placeholder="例如：想吃一道 20 分钟能完成、微辣、高蛋白的鸡胸肉菜，尽量用掉西兰花" aria-label="菜谱描述"></textarea></label><div class="ai-recipe-hints"><span>可描述菜名</span><span>口味与用时</span><span>想用的食材</span><span>营养目标</span></div><p class="recipe-generator-note">AI 会先搜索基础菜谱库，再根据你的描述、库存和偏好生成最合适的候选；菜谱插图统一使用贴合菜名的卡通风格。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="!recipeNameDraft.trim() || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 正在搜索' : 'AI 搜索菜谱' }}</button></div></form></div>
-    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :proposals="assistantProposals" :busy-proposal-id="assistantActionBusy" :image="pixelPet" @send="sendAssistantMessage" @confirm="confirmAssistantAction" @dismiss="dismissAssistantAction" />
+    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :proposals="assistantProposals" :busy-proposal-id="assistantActionBusy" :answering="assistantPendingRequests > 0" @send="sendAssistantMessage" @confirm="confirmAssistantAction" @dismiss="dismissAssistantAction" />
   </div>
 </template>

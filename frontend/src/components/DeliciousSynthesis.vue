@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { matchRecipeCombination } from '../services/deliciousSynthesis'
+import { ingredientAvailabilityMessage, matchRecipeCombination } from '../services/deliciousSynthesis'
 
 const props = defineProps({
   foods: { type: Array, required: true },
@@ -172,10 +172,7 @@ function onDrop(event) {
 }
 
 function resultAvailability(item) {
-  if (item.state === 'missing') return '库存缺少'
-  if (item.state === 'unknown') return '库存未记录'
-  if (item.state === 'insufficient') return `还差 ${item.shortage}${item.unit}`
-  return '库存充足'
+  return ingredientAvailabilityMessage(item)
 }
 
 function startCooking() {
@@ -428,4 +425,5 @@ onBeforeUnmount(() => {
 @media (max-width:760px){.synthesis-intro{align-items:flex-start}.synthesis-count{align-self:stretch;justify-content:flex-start;padding:9px 13px}.synthesis-layout{grid-template-columns:1fr;gap:22px}.ingredient-list{max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ingredient-option{min-height:88px;border:1px solid #e0e7ef;border-radius:7px}.ingredient-option:hover,.ingredient-option:focus-visible{transform:none}.synthesis-toolbar{min-height:58px}.pot-stage{min-height:390px}.pot-assembly{top:108px;width:100%;height:245px}.pot-rim{width:78%;height:86px}.pot-body{width:68%;height:142px}.pot-content{width:62%;margin-top:-80px}.pot-ingredients{grid-template-columns:1fr;gap:6px}.pot-ingredient{min-height:51px;padding:6px 8px}.synthesis-result-slot{min-height:260px}.synthesis-result-card>header{grid-template-columns:54px minmax(0,1fr);padding:18px}.result-art{width:54px;height:54px}.result-time{grid-column:2;display:flex;align-items:baseline;gap:5px;padding:0;border:0;text-align:left}.result-time strong,.result-time span{display:inline}.result-detail-grid{padding:18px}.synthesis-result-card>footer{align-items:flex-start;flex-direction:column;padding:15px 18px}.start-cooking{width:100%}.synthesis-loading,.synthesis-error,.synthesis-result-empty,.synthesis-unmatched{padding:20px}.synthesis-error{align-items:flex-start;flex-wrap:wrap}.synthesis-error button{width:100%;margin:0}.synthesis-unmatched{align-items:flex-start}}
 @media (max-width:420px){.ingredient-list{grid-template-columns:1fr}.pot-stage{min-height:380px}.pot-content{width:66%}.pot-assembly{top:104px}.pot-rim{width:84%}.pot-body{width:73%}.pot-handle{width:18%}.synthesis-notice{max-width:calc(100% - 24px);white-space:normal;text-align:center}}
 @media (prefers-reduced-motion:reduce){.pot-stage,.ingredient-option,.clear-synthesis{transition:none}.pot-stage.is-bouncing .pot-assembly,.pot-stage.is-bouncing .pot-content,.matching-spinner{animation:none}}
+.result-ingredients>div.unit-mismatch small{color:#9b6b1c}
 </style>

@@ -7,7 +7,7 @@
     "dev": "vite --configLoader runner",
     "build": "vite build --configLoader runner",
     "preview": "vite preview --configLoader runner",
-    "test": "node --test src/services/api.test.js src/services/deliciousSynthesis.test.js src/services/foodIcons.test.js src/services/onboarding.test.js src/services/recipeGuide.test.js src/services/recipePlanning.test.js src/components/fridgeLayouts.test.js src/session.test.js src/navigation.test.js",
+    "test": "node --test src/services/api.test.js src/services/deliciousSynthesis.test.js src/services/foodIcons.test.js src/services/idempotency.test.js src/services/onboarding.test.js src/services/recipeGuide.test.js src/services/recipePlanning.test.js src/components/fridgeLayouts.test.js src/session.test.js src/navigation.test.js",
     "test:e2e": "playwright test"
   },
   "dependencies": {

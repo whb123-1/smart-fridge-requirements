@@ -5,6 +5,28 @@ function displayUnit(value) {
   return ({ g: '克', kg: '千克', piece: '个', box: '盒', bottle: '瓶', bag: '袋', cup: '杯', ml: '毫升', serving: '份' })[value] || value || ''
 }
 
+function finiteQuantity(value, fallback = 0) {
+  if (value == null || value === '') return fallback
+  const quantity = Number(value)
+  return Number.isFinite(quantity) ? quantity : fallback
+}
+
+function formatQuantity(value) {
+  const quantity = finiteQuantity(value, null)
+  return quantity == null ? '' : String(Number(quantity.toFixed(3)))
+}
+
+export function ingredientAvailabilityMessage(item) {
+  if (item?.state === 'missing') return '库存缺少'
+  if (item?.state === 'unknown') return '库存未记录'
+  if (item?.state === 'unit-mismatch') return '库存单位不一致，无法换算'
+  if (item?.state === 'insufficient') {
+    const shortage = formatQuantity(item.shortage)
+    return shortage ? `还差 ${shortage}${item.unit || ''}` : '库存数量待确认'
+  }
+  return '库存充足'
+}
+
 function similar(left, right) {
   const a = String(left || '').trim().toLowerCase()
   const b = String(right || '').trim().toLowerCase()
@@ -28,12 +50,14 @@ function mapRecipe(recipe, supplied) {
       const selected = supplied.find(candidate => similar(candidate.name, item.name))
       const isMissing = missing.some(name => similar(name, item.name))
       const comparable = selected && selected.unit === item.unit
-      const shortage = comparable ? Math.max(0, Number(item.quantity || 0) - Number(selected.quantity || 0)) : null
+      const shortage = comparable ? Math.max(0, finiteQuantity(item.quantity) - finiteQuantity(selected.quantity)) : null
       return {
         ...item,
-        amount: Number(item.quantity || 0),
+        amount: finiteQuantity(item.quantity),
         unit: displayUnit(item.unit),
-        state: isMissing ? (selected ? 'insufficient' : 'missing') : 'available',
+        state: isMissing
+          ? (selected ? (comparable ? 'insufficient' : 'unit-mismatch') : 'missing')
+          : 'available',
         shortage,
       }
     }),

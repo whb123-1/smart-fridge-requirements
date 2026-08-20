@@ -1,14 +1,16 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { api } from '../services/api'
-import { completeOnboarding } from '../session'
+import { createSessionIdempotencyKeyStore } from '../services/idempotency'
+import { completeOnboarding, logout, session } from '../session'
 import { MAX_ZONES, MIN_ZONES, ZONE_KINDS } from '../components/fridgeLayouts'
 import { clampSensorCount, validateOnboardingDraft } from '../services/onboarding'
 
 const router = useRouter()
 const step = ref(1)
 const busy = ref(false)
+const leaving = ref(false)
 const loading = ref(true)
 const error = ref('')
 const zoneCount = ref(4)
@@ -16,6 +18,7 @@ const fridgeName = ref('我的冰箱')
 const defaults = ref([])
 const zones = reactive([])
 const suggestedNames = Object.freeze(['冷藏区', '保鲜区', '变温区', '冷冻区', '扩展冷藏区', '扩展保鲜区'])
+const idempotencyKeys = createSessionIdempotencyKeyStore('xianzhi.onboarding.idempotency-key')
 
 const normalizedNames = computed(() => zones.map(zone => zone.name.trim().toLocaleLowerCase()))
 const namesAreUnique = computed(() => normalizedNames.value.every((name, index, all) => name && all.indexOf(name) === index))
@@ -49,18 +52,13 @@ function next() {
 }
 
 async function initialize() {
-  if (busy.value) return
+  if (busy.value || leaving.value) return
   busy.value = true
   error.value = ''
-  const storageKey = 'xianzhi.onboarding.idempotency-key'
-  let idempotencyKey = sessionStorage.getItem(storageKey)
-  if (!idempotencyKey) {
-    idempotencyKey = crypto.randomUUID()
-    sessionStorage.setItem(storageKey, idempotencyKey)
-  }
   try {
+    const idempotencyKey = idempotencyKeys.get()
     const fridge = await api.initializeOnboarding({ fridgeName: fridgeName.value.trim(), zones: zones.map(zone => ({ ...zone, name: zone.name.trim() })) }, idempotencyKey)
-    sessionStorage.removeItem(storageKey)
+    idempotencyKeys.clear()
     completeOnboarding(fridge)
     await router.replace('/app/home')
   } catch (exception) {
@@ -75,6 +73,26 @@ async function initialize() {
     busy.value = false
   }
 }
+
+async function returnToLogin() {
+  if (busy.value || leaving.value || loading.value) return
+  leaving.value = true
+  error.value = ''
+  idempotencyKeys.clear()
+  try {
+    await logout().catch(() => undefined)
+    await router.replace({ name: 'login' })
+  } finally {
+    leaving.value = false
+  }
+}
+
+onBeforeRouteLeave(async to => {
+  if (to.name !== 'login' || !session.authenticated) return true
+  idempotencyKeys.clear()
+  await logout().catch(() => undefined)
+  return true
+})
 
 watch(zoneCount, syncZones, { immediate: true })
 
@@ -97,7 +115,10 @@ onMounted(async () => {
 <template>
   <main class="onboarding-view">
     <header class="onboarding-header">
-      <div><p>鲜知 · 首次设置</p><h1>{{ currentLabel }}</h1></div>
+      <div class="onboarding-heading">
+        <div><p>鲜知 · 首次设置</p><h1>{{ currentLabel }}</h1></div>
+        <button type="button" class="onboarding-exit" :disabled="loading || busy || leaving" @click="returnToLogin">{{ leaving ? '正在返回' : '返回登录' }}</button>
+      </div>
       <ol aria-label="初始化进度">
         <li v-for="index in 3" :key="index" :class="{ active: index === step, done: index < step }"><span>{{ index }}</span><b>{{ ['分区', '传感器', '确认'][index - 1] }}</b></li>
       </ol>
@@ -139,10 +160,10 @@ onMounted(async () => {
 
       <p v-if="error" class="form-error onboarding-error" role="alert">{{ error }}</p>
       <footer class="onboarding-actions">
-        <button v-if="step > 1" type="button" class="secondary-btn" :disabled="busy" @click="step--">上一步</button>
+        <button v-if="step > 1" type="button" class="secondary-btn" :disabled="busy || leaving" @click="step--">上一步</button>
         <span></span>
         <button v-if="step < 3" type="button" class="primary-btn" @click="next">继续</button>
-        <button v-else type="button" class="primary-btn" :disabled="busy" @click="initialize">{{ busy ? '正在创建冰箱' : '确认并进入首页' }}</button>
+        <button v-else type="button" class="primary-btn" :disabled="busy || leaving" @click="initialize">{{ busy ? '正在创建冰箱' : '确认并进入首页' }}</button>
       </footer>
     </section>
   </main>

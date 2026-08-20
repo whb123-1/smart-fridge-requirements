@@ -1,5 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import answeringImage from '../assets/assistant-answering.gif'
+import draggingImage from '../assets/assistant-dragging.gif'
+import idleLoveImage from '../assets/assistant-idle-love.gif'
+import idlePeekImage from '../assets/assistant-idle-peek.gif'
+
+const idleImages = [idlePeekImage, idleLoveImage]
 
 const props = defineProps({
   open: { type: Boolean, required: true },
@@ -8,7 +14,7 @@ const props = defineProps({
   proposals: { type: Array, default: () => [] },
   busyProposalId: { type: String, default: null },
   input: { type: String, default: '' },
-  image: { type: String, required: true },
+  answering: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:open', 'update:input', 'send', 'confirm', 'dismiss'])
@@ -16,9 +22,10 @@ const emit = defineEmits(['update:open', 'update:input', 'send', 'confirm', 'dis
 const rootRef = ref(null)
 const panelRef = ref(null)
 const isDragging = ref(false)
+const idleImageIndex = ref(Math.floor(Math.random() * idleImages.length))
 const suppressClick = ref(false)
 const hasPosition = ref(false)
-const triggerSize = reactive({ width: 106, height: 120 })
+const triggerSize = reactive({ width: 108, height: 108 })
 const panelSize = reactive({ width: 328, height: 360 })
 const viewport = reactive({
   width: typeof window === 'undefined' ? 1280 : window.innerWidth,
@@ -37,6 +44,9 @@ const dragState = {
 
 const safeMargin = 12
 const dragThreshold = 5
+const idleDelayMin = 25_000
+const idleDelayRange = 10_000
+let idleRotationTimer = null
 
 const closeIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 const sendIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
@@ -45,6 +55,12 @@ const rootStyle = computed(() => ({
   left: `${Math.round(position.x)}px`,
   top: `${Math.round(position.y)}px`,
 }))
+
+const currentImage = computed(() => {
+  if (isDragging.value) return draggingImage
+  if (props.answering) return answeringImage
+  return idleImages[idleImageIndex.value]
+})
 
 const panelStyle = computed(() => {
   const panelWidth = Math.min(panelSize.width || 328, Math.max(1, viewport.width - safeMargin * 2))
@@ -67,6 +83,19 @@ const panelStyle = computed(() => {
 })
 
 function clamp(value, min, max) { return Math.min(Math.max(value, min), max) }
+
+function rotateIdleImage() {
+  const offset = 1 + Math.floor(Math.random() * (idleImages.length - 1))
+  idleImageIndex.value = (idleImageIndex.value + offset) % idleImages.length
+}
+
+function scheduleIdleRotation() {
+  const delay = idleDelayMin + Math.floor(Math.random() * (idleDelayRange + 1))
+  idleRotationTimer = window.setTimeout(() => {
+    rotateIdleImage()
+    scheduleIdleRotation()
+  }, delay)
+}
 
 function readTriggerSize() {
   const trigger = rootRef.value?.querySelector('.ai-pet-trigger')
@@ -120,7 +149,6 @@ function startDrag(event) {
   dragState.startLeft = position.x
   dragState.startTop = position.y
   dragState.moved = false
-  isDragging.value = true
   event.currentTarget?.setPointerCapture?.(event.pointerId)
 }
 
@@ -128,7 +156,10 @@ function moveDrag(event) {
   if (!dragState.active || event.pointerId !== dragState.pointerId) return
   const deltaX = event.clientX - dragState.startX
   const deltaY = event.clientY - dragState.startY
-  if (!dragState.moved && Math.hypot(deltaX, deltaY) >= dragThreshold) dragState.moved = true
+  if (!dragState.moved && Math.hypot(deltaX, deltaY) >= dragThreshold) {
+    dragState.moved = true
+    isDragging.value = true
+  }
   if (!dragState.moved) return
   event.preventDefault()
   position.x = clamp(dragState.startLeft + deltaX, safeMargin, Math.max(safeMargin, viewport.width - triggerSize.width - safeMargin))
@@ -167,11 +198,13 @@ function handleKeydown(event) {
 onMounted(() => {
   readTriggerSize()
   placeInitially()
+  scheduleIdleRotation()
   window.addEventListener('resize', updateViewport)
   window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
+  if (idleRotationTimer) window.clearTimeout(idleRotationTimer)
   window.removeEventListener('resize', updateViewport)
   window.removeEventListener('keydown', handleKeydown)
 })
@@ -185,7 +218,7 @@ watch(() => props.open, open => {
   <section ref="rootRef" class="ai-pet" :class="{ open, 'is-dragging': isDragging }" :style="rootStyle" aria-label="鲜知 AI 助手">
     <div v-if="open" ref="panelRef" class="ai-pet-panel" :style="panelStyle" role="dialog" aria-modal="false" aria-label="与鲜知助手对话">
       <header class="ai-pet-head">
-        <div><img class="ai-pet-mini" :src="image" alt="" /><div><small>鲜知 AI 管家</small><b>可操作{{ pageName }}及全站功能</b></div></div>
+        <div><img class="ai-pet-mini" :src="currentImage" alt="" draggable="false" /><div><small>鲜知 AI 管家</small><b>可操作{{ pageName }}及全站功能</b></div></div>
         <button type="button" aria-label="关闭助手" @click="emit('update:open', false)"><span v-html="closeIcon"></span></button>
       </header>
       <div class="ai-pet-messages" aria-live="polite"><p v-for="message in messages" :key="message.id" :class="message.role">{{ message.text }}</p></div>
@@ -218,7 +251,7 @@ watch(() => props.open, open => {
       @pointercancel="finishDrag"
       @click="toggleOpen"
     >
-      <img class="ai-pet-face" :src="image" alt="" />
+      <img class="ai-pet-face" :src="currentImage" alt="" draggable="false" />
     </button>
   </section>
 </template>

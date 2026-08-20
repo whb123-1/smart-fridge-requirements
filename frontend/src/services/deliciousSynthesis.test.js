@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { matchRecipeCombination } from './deliciousSynthesis.js'
+import { ingredientAvailabilityMessage, matchRecipeCombination } from './deliciousSynthesis.js'
 
 function response(data) {
   return { ok: true, status: 200, text: async () => JSON.stringify({ code: 'OK', data }) }
@@ -39,6 +39,26 @@ test('数据库无匹配时返回后端建议', async t => {
   const result = await matchRecipeCombination({ ingredients: [{ name: '牛奶', quantity: 1, unit: 'cup' }] })
   assert.equal(result.status, 'unmatched')
   assert.equal(result.suggestion.ingredientName, '燕麦片')
+})
+
+test('库存单位不一致时明确提示，绝不渲染 null 缺口', async t => {
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch })
+  globalThis.fetch = async () => response({
+    matched: [], unmatched: ['鸡蛋'], suggestions: [],
+    recipes: [{
+      id: 'recipe-egg', name: '番茄炒蛋', cookMinutes: 15, servings: 2,
+      ingredients: [{ id: 'egg', name: '鸡蛋', role: 'PRIMARY', quantity: 5, unit: 'piece' }],
+      missing: ['鸡蛋'], steps: [], bookmarked: false,
+    }],
+  })
+
+  const result = await matchRecipeCombination({ ingredients: [{ name: '鸡蛋', quantity: 100, unit: 'g' }] })
+  const egg = result.recipe.ingredients[0]
+  assert.equal(egg.state, 'unit-mismatch')
+  assert.equal(egg.shortage, null)
+  assert.equal(ingredientAvailabilityMessage(egg), '库存单位不一致，无法换算')
+  assert.equal(ingredientAvailabilityMessage({ state: 'insufficient', shortage: null, unit: '个' }), '库存数量待确认')
 })
 
 test('已取消的请求不会调用后端', async () => {

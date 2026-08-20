@@ -1,7 +1,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import pixelPet from '../assets/xianling-pixel-pet-transparent.png'
+import xianzhiLogo from '../assets/xianzhi-logo.png'
 import { authenticatedLanding } from '../navigation.js'
 import { login, register } from '../session.js'
 
@@ -30,7 +30,9 @@ async function submit() {
           displayName: form.displayName,
         })
       : await login({ identifier: form.identifier, password: form.password })
-    await router.replace(authenticatedLanding(result.onboardingRequired, result.user))
+    const landing = authenticatedLanding(result.onboardingRequired, result.user)
+    if (landing === '/onboarding') await router.push(landing)
+    else await router.replace(landing)
   } catch (exception) {
     error.value = exception.code === 'INVALID_CREDENTIALS'
       ? '邮箱/用户名或密码不正确'
@@ -54,7 +56,7 @@ async function submit() {
       <div class="auth-fridge-line" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <h1>先认识你的冰箱，<br />再照看每一份新鲜。</h1>
       <p>账户用于隔离冰箱配置和个人数据。首次进入后，只需完成一次分区设置。</p>
-      <img :src="pixelPet" alt="" />
+      <img class="auth-logo" :src="xianzhiLogo" alt="鲜知智慧冰箱 Logo" />
     </section>
 
     <section class="auth-panel" aria-labelledby="auth-title">
