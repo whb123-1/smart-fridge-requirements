@@ -165,8 +165,4 @@ export const api = {
   resetAdminUserPassword: id => write(`/api/v1/admin/users/${id}/password-reset`, 'POST', undefined, true),
   deleteAdminUser: id => write(`/api/v1/admin/users/${id}`, 'DELETE', undefined, true),
   restoreAdminUser: id => write(`/api/v1/admin/users/${id}/restore`, 'POST', undefined, true),
-  listRecipeImportJobs: filters => request(`/api/v1/admin/recipe-import-jobs${queryString(filters || {})}`),
-  retryRecipeImportJob: id => write(`/api/v1/admin/recipe-import-jobs/${id}/retry`, 'POST', undefined, true),
-  getSearchIndex: () => request('/api/v1/admin/search-index'),
-  rebuildSearchIndex: () => write('/api/v1/admin/search-index/rebuild', 'POST', undefined, true),
 }

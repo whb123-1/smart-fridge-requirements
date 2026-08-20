@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xianzhi.fridge.assistant.application.AssistantGenerationPort;
 import com.xianzhi.fridge.identity.api.AdminUserContracts;
 import com.xianzhi.fridge.identity.application.AdminUserService;
 import com.xianzhi.fridge.identity.domain.UserRole;
@@ -20,7 +21,10 @@ import com.xianzhi.fridge.shared.application.OutboxProcessor;
 import com.xianzhi.fridge.shared.web.ApiException;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -30,6 +34,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -46,7 +54,18 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
+@Import(PhaseOneIntegrationTest.TestAiConfiguration.class)
 class PhaseOneIntegrationTest {
+    @TestConfiguration(proxyBeanMethods = false)
+    static class TestAiConfiguration {
+        @Bean
+        @Primary
+        AssistantGenerationPort testAssistantGenerationPort() {
+            return (userMessage, page, contextJson) ->
+                    new AssistantGenerationPort.GeneratedAnswer("测试模型回答", "test-chat", false);
+        }
+    }
+
     @Container
     static final MySQLContainer MYSQL = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
             .withDatabaseName("xianzhi")
@@ -436,6 +455,19 @@ class PhaseOneIntegrationTest {
     @Test
     void phaseFourRecipesMealsAssistantAndAdminImportArePersistentAndIsolated() throws Exception {
         Session owner = register("phase4-" + UUID.randomUUID() + "@example.com");
+        MvcResult catalog = mvc.perform(get("/api/v1/recipes").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(data(catalog).size()).isGreaterThanOrEqualTo(25);
+        Set<String> catalogImages = new HashSet<>();
+        for (JsonNode recipe : data(catalog)) {
+            String imageUrl = recipe.path("imageUrl").asText();
+            if (!imageUrl.isBlank()) catalogImages.add(imageUrl);
+        }
+        assertThat(catalogImages).hasSizeGreaterThanOrEqualTo(8);
+        assertThat(jdbc.queryForObject("select count(*) from recipe where review_status='APPROVED'", Integer.class))
+                .isGreaterThanOrEqualTo(25);
+        assertThat(jdbc.queryForObject("select count(*) from (select r.id from recipe r left join recipe_component c on c.recipe_id=r.id left join recipe_step s on s.recipe_id=r.id left join recipe_search_index_state i on i.recipe_id=r.id where r.review_status='APPROVED' group by r.id,i.mysql_indexed_at having count(distinct c.id)=0 or count(distinct s.id)=0 or i.mysql_indexed_at is null) invalid_recipes", Integer.class))
+                .isZero();
         mvc.perform(put("/api/v1/me/preferences").header("Authorization", bearer(owner))
                         .header("Idempotency-Key", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"tastes\":[],\"cuisines\":[],\"allergies\":[\"鸡蛋\"],\"dislikes\":[],\"calorieTarget\":1800}"))
@@ -467,7 +499,7 @@ class PhaseOneIntegrationTest {
         MvcResult answer = mvc.perform(post("/api/v1/assistant/conversations/{id}/messages", conversationId)
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", messageKey)
                         .contentType(MediaType.APPLICATION_JSON).content(message))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.fallback").value(true)).andReturn();
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.fallback").value(false)).andReturn();
         String messageId = data(answer).path("message").path("id").asText();
         mvc.perform(post("/api/v1/assistant/conversations/{id}/messages", conversationId)
                         .header("Authorization", bearer(owner)).header("Idempotency-Key", messageKey)
@@ -487,10 +519,19 @@ class PhaseOneIntegrationTest {
         MvcResult sources = mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(admin)))
                 .andExpect(status().isOk()).andReturn();
         String sourceId = data(sources).path(0).path("id").asText();
-        String importBody = objectMapper.writeValueAsString(Map.of("sourceId", sourceId, "payload", Map.of("recipes", List.of(Map.of(
-                "sourceRecipeId", "integration-tofu", "title", "香煎豆腐", "summary", "集成测试菜谱", "cookMinutes", 12,
-                "servings", 2, "ingredients", List.of(Map.of("name", "豆腐", "role", "PRIMARY", "quantity", 300, "unit", "g")),
-                "steps", List.of("豆腐切片", "煎至两面金黄"), "nutrition", Map.of("calories", 360, "protein", 24))))));
+        Map<String,Object> importedRecipe = new HashMap<>();
+        importedRecipe.put("sourceRecipeId", "integration-tofu");
+        importedRecipe.put("title", "香煎豆腐");
+        importedRecipe.put("summary", "集成测试菜谱");
+        importedRecipe.put("cookMinutes", 12);
+        importedRecipe.put("servings", 2);
+        importedRecipe.put("ingredients", List.of(Map.of("name", "豆腐", "role", "PRIMARY", "quantity", 300, "unit", "g")));
+        importedRecipe.put("steps", List.of("豆腐切片", "煎至两面金黄"));
+        importedRecipe.put("nutrition", Map.of("calories", 360, "protein", 24));
+        importedRecipe.put("imageUrl", "https://www.themealdb.com/images/media/meals/integration.jpg");
+        importedRecipe.put("imageSourceUrl", "https://www.themealdb.com/meal/integration-tofu");
+        importedRecipe.put("imageAttribution", "Image: TheMealDB");
+        String importBody = objectMapper.writeValueAsString(Map.of("sourceId", sourceId, "payload", Map.of("recipes", List.of(importedRecipe))));
         String importKey = UUID.randomUUID().toString();
         MvcResult queued = mvc.perform(post("/api/v1/admin/recipe-import-jobs")
                         .header("Authorization", bearer(admin)).header("Idempotency-Key", importKey)
@@ -502,7 +543,9 @@ class PhaseOneIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.importedCount").value(1));
         mvc.perform(get("/api/v1/recipes").param("query", "香煎豆腐").header("Authorization", bearer(owner)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].name").value("香煎豆腐"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].name").value("香煎豆腐"))
+                .andExpect(jsonPath("$.data[0].imageUrl").value("https://www.themealdb.com/images/media/meals/integration.jpg"))
+                .andExpect(jsonPath("$.data[0].imageAttribution").value("Image: TheMealDB"));
         MvcResult ingredientSearch = mvc.perform(get("/api/v1/recipes").param("query", "豆腐")
                         .header("Authorization", bearer(owner)))
                 .andExpect(status().isOk()).andReturn();
@@ -512,6 +555,13 @@ class PhaseOneIntegrationTest {
                         .content("{\"prompt\":\"豆腐\",\"inventory\":[],\"count\":3}"))
                 .andExpect(status().isOk()).andReturn();
         assertThat(data(ingredientGenerate).path("recipes").findValuesAsText("name")).contains("香煎豆腐");
+        assertThat(data(ingredientGenerate).path("fallback").asBoolean()).isTrue();
+        assertThat(data(ingredientGenerate).path("model").asText()).isEqualTo("rules-v2");
+        MvcResult naturalLanguageGenerate = mvc.perform(post("/api/v1/recipes/generate")
+                        .header("Authorization", bearer(owner)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"晚餐想吃清淡的\",\"inventory\":[],\"count\":3}"))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(data(naturalLanguageGenerate).path("recipes").size()).isEqualTo(3);
         mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(other)))
                 .andExpect(status().isForbidden());
     }

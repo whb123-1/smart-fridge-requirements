@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix="app.ai")
 public class AssistantProperties {
     private boolean externalCallsEnabled;
-    private String modelName="rules-v1";
+    private String modelName="deepseek-chat";
     private boolean vectorEnabled;
     private String baseUrl;
     private String apiKey;

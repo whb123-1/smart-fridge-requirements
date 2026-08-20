@@ -46,6 +46,7 @@ const activeCookingStep = ref(0)
 const recipeNameDraft = ref('')
 const isGeneratingRecipe = ref(false)
 const generatedRecipes = ref([])
+const generatedRecipeMeta = ref({ fallback: true, model: '', rationale: '' })
 const selectedGeneratedIds = ref([])
 const selectedInventoryIngredientIds = ref([])
 const generatedRecipeSelectionCount = ref(0)
@@ -208,6 +209,14 @@ function mapShoppingItem(item) {
 }
 
 const recipeColors = ['#dfe9df', '#e8edd6', '#f1e1d6', '#dce7ef', '#eee3d5']
+function recipeFallbackArt(item, ingredients, index) {
+  const text = [item.name, item.cuisine, ...ingredients.map(ingredient => ingredient.name)].filter(Boolean).join(' ')
+  const choices = [
+    [/汤|粥|羹/, '🥣'], [/面|粉/, '🍜'], [/饭|米/, '🍚'], [/鸡/, '🍗'], [/牛|羊|猪|肉/, '🥩'],
+    [/鱼|虾|海鲜/, '🐟'], [/蛋/, '🍳'], [/沙拉|生菜/, '🥗'], [/西兰花|蔬菜|豆角|茄子/, '🥦'], [/饼|卷/, '🥞'],
+  ]
+  return choices.find(([pattern]) => pattern.test(text))?.[1] || ['🍛', '🥘', '🍝', '🍱'][index % 4]
+}
 function mapRecipe(item, index = 0) {
   const components = item.ingredients || []
   const ingredients = components.filter(component => component.role !== 'SEASONING').map(component => ({
@@ -228,10 +237,12 @@ function mapRecipe(item, index = 0) {
     kcal: Math.round(Number(item.perServing?.calories ?? item.total?.calories ?? 0)),
     protein: Math.round(Number(item.perServing?.protein ?? item.total?.protein ?? 0)),
     match, level: availability === 'DIRECT' ? '可直接制作' : missing.length ? `缺 ${missing.length} 项食材` : '库存待确认',
-    color: recipeColors[index % recipeColors.length], art: '🍲', tags: [item.cuisine, item.taste, item.goal].filter(Boolean),
+    color: recipeColors[index % recipeColors.length], art: recipeFallbackArt(item, ingredients, index), tags: [item.cuisine, item.taste, item.goal].filter(Boolean),
     favorite: Boolean(item.bookmarked), collected: Boolean(item.bookmarked), missing, base: Number(primary?.quantity || item.servings || 1),
     servings: Number(item.servings || 1), ingredients, seasonings, steps: item.steps || [], warnings: item.validationWarnings || [],
     source: item.source, sourceVersion: item.sourceVersion, attribution: item.attribution,
+    imageUrl: item.imageUrl || '', imageSourceUrl: item.imageSourceUrl || '',
+    imageAttribution: item.imageAttribution || '', imageFailed: false,
   }
 }
 
@@ -535,6 +546,11 @@ async function generateRecipes(prompt = '', inventory = foods, selectedCount = 0
       count: 3,
     })
     generatedRecipes.value = (result.recipes || []).map(mapRecipe)
+    generatedRecipeMeta.value = {
+      fallback: Boolean(result.fallback),
+      model: result.model || '',
+      rationale: result.rationale || '',
+    }
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = selectedCount
     recipeFilter.value = '全部推荐'
@@ -566,6 +582,7 @@ async function saveGeneratedRecipes() {
     await Promise.all(selected.map(recipe => api.setRecipeBookmark(recipe.id, true)))
     await refreshRecipes()
     generatedRecipes.value = []
+    generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = 0
     notify(`已收藏 ${selected.length} 张菜谱`)
@@ -574,6 +591,7 @@ async function saveGeneratedRecipes() {
 
 function discardGeneratedRecipes() {
   generatedRecipes.value = []
+  generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
   selectedGeneratedIds.value = []
   generatedRecipeSelectionCount.value = 0
   notify('已放弃本次候选菜谱')
@@ -951,12 +969,12 @@ async function sendAssistantMessage(preset = '') {
 
         <template v-else-if="page === 'recipes'">
           <section class="page-intro"><div><p class="eyebrow">菜谱数据库 · 库存与偏好匹配</p><h1>菜谱筛选</h1><p>已避开 {{ preferences.allergies.concat(preferences.dislikes).join('、') }}，并优先匹配{{ preferences.goal }}目标。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>选择库存食材</button><button class="secondary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('edit', 18)"></span>按菜名筛选</button><button class="primary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe"><span v-html="icon('spark', 18)"></span>{{ isGeneratingRecipe ? '筛选中' : '筛选 3 张菜谱' }}</button></div></section>
-          <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">数据库候选结果</p><h2>{{ generatedRecipeSelectionCount ? `按已选 ${generatedRecipeSelectionCount} 项库存食材筛选` : '选择想收藏的菜谱' }}</h2><p>可多选；保存后会写入个人收藏。</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消本次筛选</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">收藏已选 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art" :style="{ background: recipe.color }"><span>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></div></section>
-          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art" :style="{ background: recipe.color }"><span>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>请确认后端已导入并发布菜谱数据。</p></section>
+           <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">数据库候选结果 · {{ generatedRecipeMeta.fallback ? '规则排序' : generatedRecipeMeta.model }}</p><h2>{{ generatedRecipeSelectionCount ? `按已选 ${generatedRecipeSelectionCount} 项库存食材筛选` : '选择想收藏的菜谱' }}</h2><p>{{ generatedRecipeMeta.rationale || '已结合库存、偏好和营养目标排序。' }}</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消本次筛选</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">收藏已选 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art" :class="{ 'has-photo': recipe.imageUrl && !recipe.imageFailed }" :style="{ background: recipe.color }"><img v-if="recipe.imageUrl && !recipe.imageFailed" :src="recipe.imageUrl" :alt="recipe.name" loading="lazy" @error="recipe.imageFailed = true" /><span v-else>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><a v-if="recipe.imageSourceUrl && !recipe.imageFailed" class="recipe-image-source" :href="recipe.imageSourceUrl" target="_blank" rel="noreferrer" @click.stop>{{ recipe.imageAttribution || '图片来源' }}</a></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></div></section>
+          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art" :class="{ 'has-photo': recipe.imageUrl && !recipe.imageFailed }" :style="{ background: recipe.color }"><img v-if="recipe.imageUrl && !recipe.imageFailed" :src="recipe.imageUrl" :alt="recipe.name" loading="lazy" @error="recipe.imageFailed = true" /><span v-else>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><a v-if="recipe.imageSourceUrl && !recipe.imageFailed" class="recipe-image-source" :href="recipe.imageSourceUrl" target="_blank" rel="noreferrer" @click.stop>{{ recipe.imageAttribution || '图片来源' }}</a><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>请确认后端已导入并发布菜谱数据。</p></section>
         </template>
 
         <template v-else-if="page === 'cooking'">
-          <section v-if="!cookingRecipe" class="empty-state"><span v-html="icon('pan', 32)"></span><h1>选择一道菜开始制作</h1><button class="primary-btn" @click="go('recipes')">浏览菜谱</button></section><template v-else><section class="page-intro cooking-intro"><div><p class="eyebrow">做菜模式 · AI 实时换算</p><h1>{{ cookingRecipe.name }}</h1><p>{{ cookingRecipe.time }} 分钟 · 食材{{ cookingRecipe.missing.length ? `缺少 ${cookingRecipe.missing.join('、')}` : '齐全' }}</p></div><button class="secondary-btn" @click="go('recipes')">切换菜品</button></section><section class="cooking-layout"><aside class="cooking-control"><label>主料重量<input v-model.number="cookingWeight" type="number" min="1" /><span>克</span></label><div class="cooking-kcal"><small>本次总热量</small><strong>{{ scaledKcal }}</strong><span>千卡</span></div><h3>所需食材</h3><div v-for="item in scaledIngredients" :key="item.name" class="ingredient-line"><span>{{ item.name }}</span><b>{{ item.display }} {{ item.unit }}</b></div><h3>调味品</h3><div v-for="item in cookingRecipe.seasonings" :key="item.name" class="ingredient-line"><span>{{ item.name }}</span><b>{{ item.amount }} {{ item.unit }}</b></div></aside><section class="cooking-steps"><div class="cooking-progress"><button v-for="(step, index) in cookingRecipe.steps" :key="index" :class="{ active: activeCookingStep === index, done: index < activeCookingStep }" @click="activeCookingStep = index"><span>{{ index + 1 }}</span></button></div><article><p>步骤 {{ activeCookingStep + 1 }} / {{ cookingRecipe.steps.length }}</p><h2>{{ cookingRecipe.steps[activeCookingStep] }}</h2><div><button class="secondary-btn" :disabled="activeCookingStep === 0" @click="activeCookingStep--">上一步</button><button v-if="activeCookingStep < cookingRecipe.steps.length - 1" class="primary-btn" @click="activeCookingStep++">下一步</button><button v-else class="primary-btn" @click="completeCooking">完成制作</button></div></article></section></section></template>
+          <section v-if="!cookingRecipe" class="empty-state"><span v-html="icon('pan', 32)"></span><h1>选择一道菜开始制作</h1><button class="primary-btn" @click="go('recipes')">浏览菜谱</button></section><template v-else><section class="page-intro cooking-intro"><div><p class="eyebrow">做菜模式 · AI 实时换算</p><h1>{{ cookingRecipe.name }}</h1><p>{{ cookingRecipe.time }} 分钟 · 食材{{ cookingRecipe.missing.length ? `缺少 ${cookingRecipe.missing.join('、')}` : '齐全' }}</p><a v-if="cookingRecipe.imageSourceUrl" class="cooking-source" :href="cookingRecipe.imageSourceUrl" target="_blank" rel="noreferrer">{{ cookingRecipe.attribution || cookingRecipe.imageAttribution || '查看菜谱来源' }}</a></div><button class="secondary-btn" @click="go('recipes')">切换菜品</button></section><section class="cooking-layout"><aside class="cooking-control"><label>主料重量<input v-model.number="cookingWeight" type="number" min="1" /><span>克</span></label><div class="cooking-kcal"><small>本次总热量</small><strong>{{ scaledKcal }}</strong><span>千卡</span></div><h3>所需食材</h3><div v-for="item in scaledIngredients" :key="item.name" class="ingredient-line"><span>{{ item.name }}</span><b>{{ item.display }} {{ item.unit }}</b></div><h3>调味品</h3><div v-for="item in cookingRecipe.seasonings" :key="item.name" class="ingredient-line"><span>{{ item.name }}</span><b>{{ item.amount }} {{ item.unit }}</b></div></aside><section class="cooking-steps"><div class="cooking-progress"><button v-for="(step, index) in cookingRecipe.steps" :key="index" :class="{ active: activeCookingStep === index, done: index < activeCookingStep }" @click="activeCookingStep = index"><span>{{ index + 1 }}</span></button></div><article><p>步骤 {{ activeCookingStep + 1 }} / {{ cookingRecipe.steps.length }}</p><h2>{{ cookingRecipe.steps[activeCookingStep] }}</h2><div><button class="secondary-btn" :disabled="activeCookingStep === 0" @click="activeCookingStep--">上一步</button><button v-if="activeCookingStep < cookingRecipe.steps.length - 1" class="primary-btn" @click="activeCookingStep++">下一步</button><button v-else class="primary-btn" @click="completeCooking">完成制作</button></div></article></section></section></template>
         </template>
 
         <template v-else-if="page === 'diet'">

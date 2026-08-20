@@ -100,9 +100,9 @@ app:
     manage-lifecycle: ${STORAGE_MANAGE_LIFECYCLE:true}
   ai:
     external-calls-enabled: ${AI_EXTERNAL_CALLS_ENABLED:false}
-    model-name: ${AI_MODEL_NAME:rules-v1}
+    model-name: ${AI_MODEL_NAME:deepseek-chat}
     base-url: ${AI_BASE_URL:}
-    api-key: ${AI_API_KEY:}
+    api-key: ${AI_API_KEY:${deepseek_api_key:}}
     timeout: ${AI_TIMEOUT:PT30S}
     vector-enabled: ${AI_VECTOR_ENABLED:false}
     embedding-provider: ${EMBEDDING_PROVIDER:local}

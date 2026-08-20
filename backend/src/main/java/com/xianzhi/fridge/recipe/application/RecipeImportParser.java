@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.net.URI;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -66,7 +67,8 @@ public class RecipeImportParser {
         return new RecipeDocument(text(node, "sourceRecipeId", null), title, text(node, "summary", null),
                 text(node, "cuisine", null), text(node, "taste", null), text(node, "goal", null), cookMinutes,
                 servings, decimal(nutrition, "calories"), decimal(nutrition, "protein"), decimal(nutrition, "fat"),
-                decimal(nutrition, "carbs"), Hashing.sha256(normalized), snapshot, Hashing.sha256(snapshot), components, steps);
+                decimal(nutrition, "carbs"), Hashing.sha256(normalized), snapshot, Hashing.sha256(snapshot), components, steps,
+                optionalUrl(node, "imageUrl"), optionalUrl(node, "imageSourceUrl"), optionalAttribution(node));
     }
 
     private static String requiredText(JsonNode node, String field, int max) {
@@ -79,6 +81,27 @@ public class RecipeImportParser {
     private static String text(JsonNode node, String field, String fallback) {
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? fallback : value.asText().trim();
+    }
+
+    private static String optionalUrl(JsonNode node, String field) {
+        String value = text(node, field, null);
+        if (value == null || value.isBlank()) return null;
+        try {
+            URI uri = URI.create(value);
+            if (!List.of("http", "https").contains(uri.getScheme().toLowerCase(Locale.ROOT)) || uri.getHost() == null) {
+                throw new IllegalArgumentException(field + " must be an absolute http(s) URL");
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(field + " must be an absolute http(s) URL", exception);
+        }
+        if (value.length() > 1024) throw new IllegalArgumentException(field + " exceeds 1024 characters");
+        return value;
+    }
+
+    private static String optionalAttribution(JsonNode node) {
+        String value = text(node, "imageAttribution", null);
+        if (value != null && value.length() > 500) throw new IllegalArgumentException("imageAttribution exceeds 500 characters");
+        return value;
     }
 
     private static BigDecimal decimal(JsonNode node, String field) {
@@ -104,7 +127,7 @@ public class RecipeImportParser {
                                  String goal, int cookMinutes, BigDecimal servings, BigDecimal calories,
                                  BigDecimal protein, BigDecimal fat, BigDecimal carbs, String fingerprint,
                                  String snapshot, String snapshotChecksum, List<ComponentDocument> components,
-                                 List<String> steps) { }
+                                 List<String> steps, String imageUrl, String imageSourceUrl, String imageAttribution) { }
 
     public record ComponentDocument(String name, String role, BigDecimal quantity, String unit, String scalingRule,
                                     BigDecimal minimumQuantity, BigDecimal maximumQuantity, int sortOrder) { }

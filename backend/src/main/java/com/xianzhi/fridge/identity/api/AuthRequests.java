@@ -18,7 +18,7 @@ public final class AuthRequests {
 
     public record Login(
             @JsonAlias("email") @NotBlank @Size(max = 320) String identifier,
-            @NotBlank @Size(min = 8, max = 128) String password) { }
+            @NotBlank @Size(min = 6, max = 128) String password) { }
 
     public record UpdateProfile(
             @NotBlank @Pattern(regexp = "^[a-z0-9_]{3,32}$") String username,

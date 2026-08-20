@@ -71,7 +71,7 @@ async function submit() {
         <label v-if="isRegister">用户名<input v-model.trim="form.username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-z0-9_]{3,32}" required placeholder="例如：lin_zhixia" @input="form.username = form.username.toLowerCase()" /></label>
         <label v-if="isRegister">邮箱<input v-model.trim="form.email" autocomplete="email" type="email" maxlength="320" required placeholder="name@example.com" /></label>
         <label v-else>邮箱或用户名<input v-model.trim="form.identifier" autocomplete="username" maxlength="320" required placeholder="name@example.com 或用户名" /></label>
-        <label>密码<input v-model="form.password" :autocomplete="isRegister ? 'new-password' : 'current-password'" type="password" minlength="8" maxlength="128" required placeholder="至少 8 位" /></label>
+        <label>密码<input v-model="form.password" :autocomplete="isRegister ? 'new-password' : 'current-password'" type="password" :minlength="isRegister ? 8 : 6" maxlength="128" required :placeholder="isRegister ? '至少 8 位' : '请输入密码'" /></label>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="auth-submit" :disabled="busy">{{ busy ? '正在连接' : isRegister ? '创建账户并配置冰箱' : '登录' }}</button>
       </form>

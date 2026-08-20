@@ -84,6 +84,7 @@ services:
       context: ./backend
     environment:
       SPRING_PROFILES_ACTIVE: api,dev
+      SPRING_CONFIG_IMPORT: optional:configtree:/run/secrets/
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
       MYSQL_USER: ${MYSQL_USER:-xianzhi}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
@@ -107,12 +108,15 @@ services:
       SPEECH_FAKE_TRANSCRIPT: ${SPEECH_FAKE_TRANSCRIPT:-鸡蛋 2 个}
       SPEECH_STORAGE_PATH: /data/speech
       AI_EXTERNAL_CALLS_ENABLED: ${AI_EXTERNAL_CALLS_ENABLED:-false}
-      AI_MODEL_NAME: ${AI_MODEL_NAME:-rules-v1}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-deepseek-chat}
       AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-xianzhi_recipes}
     volumes:
       - speech_data:/data/speech
+    secrets:
+      - deepseek_api_key
     ports:
       - "8080:8080"
     depends_on:
@@ -133,6 +137,7 @@ services:
       context: ./backend
     environment:
       SPRING_PROFILES_ACTIVE: worker,dev
+      SPRING_CONFIG_IMPORT: optional:configtree:/run/secrets/
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/xianzhi?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC}
       MYSQL_USER: ${MYSQL_USER:-xianzhi}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
@@ -155,12 +160,15 @@ services:
       SPEECH_FAKE_TRANSCRIPT: ${SPEECH_FAKE_TRANSCRIPT:-鸡蛋 2 个}
       SPEECH_STORAGE_PATH: /data/speech
       AI_EXTERNAL_CALLS_ENABLED: ${AI_EXTERNAL_CALLS_ENABLED:-false}
-      AI_MODEL_NAME: ${AI_MODEL_NAME:-rules-v1}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-deepseek-chat}
       AI_VECTOR_ENABLED: ${AI_VECTOR_ENABLED:-false}
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-xianzhi_recipes}
     volumes:
       - speech_data:/data/speech
+    secrets:
+      - deepseek_api_key
     depends_on:
       api:
         condition: service_healthy
@@ -175,3 +183,7 @@ volumes:
   speech_data:
   minio_data:
   qdrant_data:
+
+secrets:
+  deepseek_api_key:
+    file: ./secrets/deepseek_api_key

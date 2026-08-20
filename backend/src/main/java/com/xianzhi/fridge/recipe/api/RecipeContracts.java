@@ -15,8 +15,9 @@ public final class RecipeContracts {
     public record RecipeView(UUID id,String name,String description,String cuisine,String taste,String goal,int cookMinutes,
                              BigDecimal servings,Nutrition total,Nutrition perServing,List<Component> ingredients,
                              List<String> steps,boolean bookmarked,String source,String sourceVersion,String attribution,
+                             String imageUrl,String imageSourceUrl,String imageAttribution,
                              String availability,List<String> missing,List<String> validationWarnings) { }
-    public record GenerateRequest(UUID fridgeId,@Size(max=500) String prompt,List<IngredientInput> inventory,@Min(1) @Max(3) Integer count) { }
+    public record GenerateRequest(UUID fridgeId,@Size(max=500) String prompt,List<@Valid IngredientInput> inventory,@Min(1) @Max(3) Integer count) { }
     public record IngredientInput(UUID batchId,@NotBlank String name,BigDecimal quantity,String unit) { }
     public record MatchRequest(@NotEmpty @Size(max=4) List<@Valid IngredientInput> ingredients) { }
     public record MatchView(List<RecipeView> recipes,List<String> matched,List<String> unmatched,List<String> suggestions) { }

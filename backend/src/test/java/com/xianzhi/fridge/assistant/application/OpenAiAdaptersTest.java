@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.xianzhi.fridge.shared.application.ExternalProviderClient;
+import com.xianzhi.fridge.shared.web.ApiException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +51,7 @@ class OpenAiAdaptersTest {
                 .willReturn(okJson("{\"choices\":[{\"message\":{\"content\":\"{\\\"answer\\\":\\\"建议先用鸡蛋\\\"}\"}}]}")));
         var adapter = new OpenAiAssistantGenerationAdapter(properties, client, mapper);
 
-        var generated = adapter.generate("做什么菜", "inventory", "{}", "规则降级");
+        var generated = adapter.generate("做什么菜", "inventory", "{}");
 
         assertThat(generated.answer()).isEqualTo("建议先用鸡蛋");
         assertThat(generated.fallback()).isFalse();
@@ -61,9 +62,21 @@ class OpenAiAdaptersTest {
         server.resetAll();
         server.stubFor(post("/v1/chat/completions")
                 .willReturn(okJson("{\"choices\":[{\"message\":{\"content\":\"{\\\"unexpected\\\":true}\"}}]}")));
-        var fallback = adapter.generate("做什么菜", "inventory", "{}", "规则降级");
-        assertThat(fallback.answer()).isEqualTo("规则降级");
-        assertThat(fallback.fallback()).isTrue();
+        assertThatThrownBy(() -> adapter.generate("做什么菜", "inventory", "{}"))
+                .isInstanceOf(ApiException.class)
+                .satisfies(exception -> assertThat(((ApiException) exception).getCode())
+                        .isEqualTo("AI_PROVIDER_UNAVAILABLE"));
+    }
+
+    @Test
+    void assistantRejectsMissingProviderConfigurationWithoutRuleFallback() {
+        properties.setExternalCallsEnabled(false);
+        var adapter = new OpenAiAssistantGenerationAdapter(properties, client, mapper);
+
+        assertThatThrownBy(() -> adapter.generate("你好", "home", "{}"))
+                .isInstanceOf(ApiException.class)
+                .satisfies(exception -> assertThat(((ApiException) exception).getCode())
+                        .isEqualTo("AI_PROVIDER_NOT_CONFIGURED"));
     }
 
     @Test

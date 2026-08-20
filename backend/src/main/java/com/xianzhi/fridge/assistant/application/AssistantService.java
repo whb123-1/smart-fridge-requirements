@@ -49,9 +49,8 @@ public class AssistantService {
         store.message(UuidV7.next(),conversationId,userId,"USER",request.content(),request.page(),selection,"[]",snapshot,context.version(),null,"ACCEPTED",now);
         List<AssistantContracts.Citation> citations=context.inventory().stream().limit(3)
                 .map(item->new AssistantContracts.Citation("INVENTORY_ITEM",item.id(),item.name()+(item.lowStock()?"：库存偏低":""))).toList();
-        List<AssistantContracts.ProposalView> proposals=new ArrayList<>();String fallback;String text=request.content();
+        List<AssistantContracts.ProposalView> proposals=new ArrayList<>();String text=request.content();
         if(text.contains("菜谱")||text.contains("吃什么")||text.contains("做什么")){
-            fallback=context.inventory().isEmpty()?"当前没有可用库存记录，可以先添加食材，再生成更准确的菜谱候选。":"我可以基于当前 "+context.inventory().size()+" 种库存食材生成规则菜谱候选。";
             proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"CREATE_RECIPE_CANDIDATES","生成当前库存菜谱候选",selection,context.version(),now.plus(Duration.ofMinutes(30)),now));
         }else if(text.contains("采购")||text.contains("购物")||text.contains("买")){
             JsonNode selected=request.selection();
@@ -59,10 +58,9 @@ public class AssistantService {
                 ObjectNode payload=mapper.createObjectNode();payload.put("listId",selected.path("listId").asText());payload.put("name",selected.path("itemName").asText());
                 payload.put("quantity",selected.path("quantity").asDouble(1));payload.put("unit",selected.path("unit").asText("piece"));
                 proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"CREATE_SHOPPING_CANDIDATE","加入购物清单",json(payload),context.version(),now.plus(Duration.ofMinutes(30)),now));
-                fallback="已生成购物清单操作草案，确认后才会写入数据。";
-            }else{fallback="请先在采购页面选择清单和食材，我会生成待确认草案。";proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"NAVIGATE","打开采购页面","{\"path\":\"/app/shopping\"}",context.version(),now.plus(Duration.ofMinutes(30)),now));}
-        }else fallback="我已读取当前页面、库存和偏好状态。你可以询问临期处理、库存菜谱或采购建议。";
-        var generated=generation.generate(text,request.page(),context.json(),fallback);String citationJson=json(citations);
+            }else{proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"NAVIGATE","打开采购页面","{\"path\":\"/app/shopping\"}",context.version(),now.plus(Duration.ofMinutes(30)),now));}
+        }
+        var generated=generation.generate(text,request.page(),context.json());String citationJson=json(citations);
         var assistant=store.message(UuidV7.next(),conversationId,userId,"ASSISTANT",generated.answer(),request.page(),selection,citationJson,snapshot,context.version(),generated.model(),"COMPLETED",clock.instant());
         var result=new AssistantContracts.MessageResponse(assistant,citations,proposals,generated.fallback());idempotency.save(userId,key,"POST",path,request,result,200);return result;
     }
