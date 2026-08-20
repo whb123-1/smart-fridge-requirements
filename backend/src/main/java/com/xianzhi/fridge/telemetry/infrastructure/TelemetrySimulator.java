@@ -68,17 +68,35 @@ public class TelemetrySimulator {
     @EventListener(ApplicationReadyEvent.class)
     public void start() { connectIfNeeded(); }
 
+    /**
+     * New virtual probes do not have a retained MQTT value by design.  Poll the
+     * uninitialised slots separately so a newly completed onboarding receives
+     * its first valid reading within a second, while regular synchronisation
+     * remains on the five-minute cadence below.
+     */
+    @Scheduled(fixedDelayString = "${app.telemetry.bootstrap-interval:PT1S}",
+            initialDelayString = "${app.telemetry.bootstrap-interval:PT1S}")
+    public void emitInitialReadings() {
+        emitReadings(true);
+    }
+
     @Scheduled(fixedDelayString = "${app.telemetry.emit-interval:PT5M}", initialDelayString = "${app.telemetry.emit-interval:PT5M}")
     public void emit() {
+        emitReadings(false);
+    }
+
+    private void emitReadings(boolean initialOnly) {
         connectIfNeeded();
         if (!connected()) return;
         Instant now = clock.instant();
         for (Device device : devices.findByTypeAndStatusAndDeletedAtIsNull(DeviceType.VIRTUAL, DeviceStatus.ACTIVE)) {
-            for (SensorSlot sensor : sensors.findByDeviceIdAndEnabledTrueOrderBySlotIndexAsc(device.getId())) publish(device, sensor, now);
+            for (SensorSlot sensor : sensors.findByDeviceIdAndEnabledTrueOrderBySlotIndexAsc(device.getId())) {
+                if (!initialOnly || sensor.getLastObservedAt() == null) publish(device, sensor, now, initialOnly);
+            }
         }
     }
 
-    private void publish(Device device, SensorSlot sensor, Instant now) {
+    private void publish(Device device, SensorSlot sensor, Instant now, boolean initialReading) {
         SensorProfile profile = profiles.findById(sensor.getProfileId()).orElse(null);
         FridgeZone zone = zones.findById(device.getZoneId()).orElse(null);
         if (profile == null || zone == null) return;
@@ -86,7 +104,7 @@ public class TelemetrySimulator {
         BigDecimal safeMin = sensor.getMetric() == SensorMetric.TEMPERATURE ? zone.getSafeTemperatureMinC() : zone.getSafeHumidityMinPct();
         BigDecimal safeMax = sensor.getMetric() == SensorMetric.TEMPERATURE ? zone.getSafeTemperatureMaxC() : zone.getSafeHumidityMaxPct();
         BigDecimal value = simulatedValue(sensor.getMetric(), sensor.getLastValue(), target, safeMin, safeMax,
-                profile.getPhysicalMin(), profile.getPhysicalMax(), random.nextDouble(), random.nextDouble());
+                profile.getPhysicalMin(), profile.getPhysicalMax(), initialReading ? 0.5 : random.nextDouble(), random.nextDouble());
         TelemetryContracts.Message payload = new TelemetryContracts.Message(UUID.randomUUID(), now, "virtual-simulator",
                 List.of(new TelemetryContracts.Reading(sensor.getId(), sensor.getMetric(), value,
                         sensor.getMetric() == SensorMetric.TEMPERATURE ? "C" : "PERCENT", ReadingQuality.GOOD)));

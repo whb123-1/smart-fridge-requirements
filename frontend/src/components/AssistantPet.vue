@@ -197,7 +197,7 @@ watch(() => props.open, open => {
         </article>
       </div>
       <div class="ai-pet-prompts">
-        <button type="button" @click="emit('send', '在冷藏区添加 100 克鸡蛋')">添加食材</button>
+        <button type="button" @click="emit('send', '在冷藏区添加 100 克鸡蛋和 2 个番茄')">批量添加食材</button>
         <button type="button" @click="emit('send', '冰箱状态如何')">冰箱状态</button>
         <button type="button" @click="emit('send', '用现有库存帮我找三道快手菜谱')">AI 找菜谱</button>
       </div>

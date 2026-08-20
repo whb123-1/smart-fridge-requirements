@@ -14,7 +14,6 @@ function similar(left, right) {
 function mapRecipe(recipe, supplied) {
   const components = (recipe.ingredients || []).filter(item => item.role !== 'SEASONING')
   const missing = recipe.missing || []
-  const availableCount = components.filter(item => !missing.some(name => similar(name, item.name))).length
   const mapped = {
     id: recipe.id,
     name: recipe.name,
@@ -22,7 +21,6 @@ function mapRecipe(recipe, supplied) {
     time: Number(recipe.cookMinutes || 0),
     kcal: Math.round(Number(recipe.perServing?.calories ?? recipe.total?.calories ?? 0)),
     protein: Math.round(Number(recipe.perServing?.protein ?? recipe.total?.protein ?? 0)),
-    match: components.length ? Math.round(availableCount / components.length * 100) : 100,
     level: missing.length ? `缺 ${missing.length} 样食材` : '库存齐全',
     missing,
     art: '🍲',
@@ -65,12 +63,21 @@ export async function matchRecipeCombination(payload, { signal } = {}) {
   const result = await api.matchRecipes(ingredients)
   if (signal?.aborted) throw new DOMException('Synthesis request aborted', 'AbortError')
   const recipe = result?.recipes?.[0]
-  if (recipe) return { requestId: result?.synthesisId || null, status: 'matched', recipe: { ...mapRecipe(recipe, ingredients), synthesisId: result?.synthesisId || null }, suggestion: null }
+  if (recipe) return {
+    requestId: result?.synthesisId || null,
+    status: 'matched',
+    recipe: { ...mapRecipe(recipe, ingredients), synthesisId: result?.synthesisId || null },
+    matched: result?.matched || [],
+    unmatched: result?.unmatched || [],
+    suggestion: null,
+  }
   const ingredientName = result?.suggestions?.[0] || null
   return {
     requestId: result?.synthesisId || null,
     status: 'unmatched',
     recipe: null,
+    matched: result?.matched || [],
+    unmatched: result?.unmatched || ingredients.map(item => item.name),
     suggestion: ingredientName ? {
       ingredientName,
       targetRecipeName: '数据库中的相近菜谱',

@@ -23,31 +23,11 @@ let requestController = null
 let bounceTimer = null
 let noticeTimer = null
 
+const availableFoods = computed(() => props.foods.filter(food => Number(food.amount) > 0 && food.batchId))
 const selectedTypeCount = computed(() => selectedIngredients.value.length)
-const selectedTotalCount = computed(() => selectedIngredients.value.reduce((sum, item) => sum + item.quantity, 0))
 
 function selectedEntry(food) {
   return selectedIngredients.value.find(item => String(item.id) === String(food.id))
-}
-
-function stockState(item) {
-  const food = props.foods.find(candidate => String(candidate.id) === String(item.id))
-  if (!food || food.amount === '' || food.amount === null || food.amount === undefined || !Number.isFinite(Number(food.amount))) {
-    return { state: 'unknown', shortage: null, unit: food?.unit || item.unit }
-  }
-  const shortage = Math.max(0, Number(item.quantity) - Number(food.amount))
-  return { state: shortage > 0 ? 'insufficient' : 'available', shortage, unit: food.unit || item.unit }
-}
-
-function stockCopy(item) {
-  const state = stockState(item)
-  if (state.state === 'unknown') return '库存未记录'
-  if (state.state === 'insufficient') return `库存不足，还差 ${state.shortage}${state.unit}`
-  return ''
-}
-
-function selectionQuantity(food) {
-  return selectedEntry(food)?.quantity || 0
 }
 
 function setNotice(message) {
@@ -104,33 +84,34 @@ async function runMatch() {
 
 function addIngredient(food, { bounce = false } = {}) {
   const existing = selectedEntry(food)
-  if (!existing && selectedIngredients.value.length >= 4) {
+  if (existing) {
+    setNotice(`${food.name} 已在合成区`)
+    return
+  }
+  if (selectedIngredients.value.length >= 4) {
     setNotice('合成区最多放入 4 种食材')
     return
   }
 
-  if (existing) {
-    existing.quantity += 1
-  } else {
-    selectedIngredients.value.push({
-      id: food.id,
-      batchId: food.batchId,
-      name: food.name,
-      icon: food.icon,
-      category: food.category,
-      quantity: 1,
-      unit: food.unit,
-      apiUnit: food.apiUnit,
-    })
-  }
+  selectedIngredients.value.push({
+    id: food.id,
+    batchId: food.batchId,
+    name: food.name,
+    icon: food.icon,
+    category: food.category,
+    // Matching uses the real usable quantity from the selected batch. Clicking
+    // an item must not silently turn one gram/piece into an arbitrary serving.
+    quantity: Number(food.amount),
+    unit: food.unit,
+    apiUnit: food.apiUnit,
+  })
   inlineNotice.value = ''
   if (bounce) triggerBounce()
   runMatch()
 }
 
-function decreaseIngredient(item) {
-  if (item.quantity > 1) item.quantity -= 1
-  else selectedIngredients.value = selectedIngredients.value.filter(candidate => String(candidate.id) !== String(item.id))
+function removeIngredient(item) {
+  selectedIngredients.value = selectedIngredients.value.filter(candidate => String(candidate.id) !== String(item.id))
   runMatch()
 }
 
@@ -147,7 +128,9 @@ function clearSynthesis() {
 
 function onIngredientClick(food) {
   if (dragStarted) return
-  addIngredient(food)
+  const existing = selectedEntry(food)
+  if (existing) removeIngredient(existing)
+  else addIngredient(food)
 }
 
 function onDragStart(event, food) {
@@ -184,7 +167,7 @@ function onDrop(event) {
   dragDepth = 0
   isDragOver.value = false
   const foodId = event.dataTransfer.getData('text/plain')
-  const food = props.foods.find(item => String(item.id) === String(foodId))
+  const food = availableFoods.value.find(item => String(item.id) === String(foodId))
   if (food) addIngredient(food, { bounce: true })
 }
 
@@ -219,6 +202,12 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
+  <section class="synthesis-logic" aria-label="合成匹配规则">
+    <article><strong>01</strong><div><b>按真实库存选材</b><small>提交所选批次的实际可用数量，不按点击次数虚增份量。</small></div></article>
+    <article><strong>02</strong><div><b>优先使用更多所选食材</b><small>后端先排除过敏与忌口，再按未使用食材、缺料数量和用时排序。</small></div></article>
+    <article><strong>03</strong><div><b>制作时原子扣减</b><small>确认做菜后才扣减对应批次，并写入饮食记录；匹配阶段不会改库存。</small></div></article>
+  </section>
+
   <section class="synthesis-layout">
     <aside class="ingredient-library" aria-label="食材库">
       <header>
@@ -226,17 +215,17 @@ onBeforeUnmount(() => {
           <p class="eyebrow">冰箱现有库存</p>
           <h2>食材库</h2>
         </div>
-        <span>{{ foods.length }} 项</span>
+        <span>{{ availableFoods.length }} 项可用</span>
       </header>
 
       <div class="ingredient-list">
         <button
-          v-for="food in foods"
+          v-for="food in availableFoods"
           :key="food.id"
           class="ingredient-option"
-          :class="{ selected: selectionQuantity(food), insufficient: selectedEntry(food) && stockState(selectedEntry(food)).state === 'insufficient' }"
+          :class="{ selected: selectedEntry(food) }"
           draggable="true"
-          :aria-label="`加入${food.name}，当前库存${food.amount === '' ? '未记录' : `${food.amount}${food.unit}`}，已选${selectionQuantity(food)}`"
+          :aria-label="`${selectedEntry(food) ? '取消选择' : '加入'}${food.name}，当前库存${food.amount}${food.unit}`"
           @click="onIngredientClick(food)"
           @dragstart="onDragStart($event, food)"
           @dragend="onDragEnd"
@@ -247,8 +236,7 @@ onBeforeUnmount(() => {
             <small>{{ food.category }} · {{ food.zone }}</small>
           </span>
           <em>{{ food.amount === '' ? '未记录' : `${food.amount}${food.unit}` }}</em>
-          <strong v-if="selectionQuantity(food)">×{{ selectionQuantity(food) }}</strong>
-          <small v-if="selectedEntry(food) && stockCopy(selectedEntry(food))" class="ingredient-stock-warning">{{ stockCopy(selectedEntry(food)) }}</small>
+          <strong v-if="selectedEntry(food)">已选</strong>
         </button>
       </div>
     </aside>
@@ -256,7 +244,7 @@ onBeforeUnmount(() => {
     <div class="synthesis-workbench">
       <header class="synthesis-toolbar">
         <div>
-          <p class="eyebrow">{{ selectedTypeCount }} / 4 种 · 共 {{ selectedTotalCount }} 份</p>
+          <p class="eyebrow">{{ selectedTypeCount }} / 4 种 · 使用所选批次库存</p>
           <h2>合成区</h2>
         </div>
         <button class="clear-synthesis" :disabled="!selectedTypeCount" @click="clearSynthesis">清空合成区</button>
@@ -288,12 +276,10 @@ onBeforeUnmount(() => {
               v-for="item in selectedIngredients"
               :key="item.id"
               class="pot-ingredient"
-              :class="stockState(item).state"
             >
               <span>{{ item.icon }}</span>
-              <div><b>{{ item.name }}</b><small>已选 ×{{ item.quantity }}</small></div>
-              <button :aria-label="`减少一份${item.name}`" title="减少一份" @click="decreaseIngredient(item)">−</button>
-              <em v-if="stockCopy(item)">{{ stockCopy(item) }}</em>
+              <div><b>{{ item.name }}</b><small>可用 {{ item.quantity }}{{ item.unit }}</small></div>
+              <button :aria-label="`移除${item.name}`" title="移除食材" @click="removeIngredient(item)">×</button>
             </article>
           </div>
           <div v-else class="pot-empty">
@@ -321,7 +307,7 @@ onBeforeUnmount(() => {
           <header>
             <span class="result-art">{{ matchResult.recipe.art }}</span>
             <div>
-              <p class="eyebrow">推荐菜品 · {{ matchResult.recipe.match }}% 匹配</p>
+              <p class="eyebrow">组合推荐 · 优先使用所选食材</p>
               <h2>{{ matchResult.recipe.name }}</h2>
               <p>{{ matchResult.recipe.desc }}</p>
             </div>
@@ -349,9 +335,9 @@ onBeforeUnmount(() => {
 
           <footer>
             <span :class="{ warning: matchResult.recipe.missing.length }">
-              {{ matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : `当前库存可以直接制作 · AI 估算每份 ${matchResult.recipe.kcal} 千卡` }}
+              {{ matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : matchResult.unmatched?.length ? `本菜谱未使用：${matchResult.unmatched.join('、')}` : `当前库存可以直接制作 · AI 估算每份 ${matchResult.recipe.kcal} 千卡` }}
             </span>
-            <button class="start-cooking" @click="startCooking">开始做菜</button>
+            <button class="start-cooking" :disabled="matchResult.recipe.missing.length" @click="startCooking">开始做菜</button>
           </footer>
         </article>
 
@@ -383,6 +369,10 @@ onBeforeUnmount(() => {
 .synthesis-count{display:flex;align-items:baseline;gap:8px;padding:12px 16px;border-left:3px solid #e79b55;color:#315964}
 .synthesis-count strong{font:800 32px/1 'Nunito Sans','Noto Sans SC',sans-serif}
 .synthesis-count span{font-size:13px;font-weight:700}
+.synthesis-logic{width:min(100%,1320px);margin:0 auto 20px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.synthesis-logic article{display:flex;gap:10px;align-items:flex-start;padding:13px 14px;border:1px solid #d8e6ea;border-radius:8px;background:#f8fcfd;color:#315964}
+.synthesis-logic article>strong{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:50%;background:#dceff2;color:#286e83;font:800 11px 'Nunito Sans',sans-serif}
+.synthesis-logic b,.synthesis-logic small{display:block}.synthesis-logic b{font-size:13px}.synthesis-logic small{margin-top:4px;color:#728696;font-size:11px;line-height:1.5}
 .synthesis-layout{display:grid;grid-template-columns:320px minmax(0,1fr);align-items:start;gap:28px}
 .ingredient-library{overflow:hidden;border:1px solid #d5dcec;border-radius:8px;background:#fff;box-shadow:0 5px 18px rgba(33,7,31,.045)}
 .ingredient-library>header,.synthesis-toolbar{display:flex;align-items:center;justify-content:space-between}
@@ -432,9 +422,9 @@ onBeforeUnmount(() => {
 .result-detail-grid{display:grid;grid-template-columns:minmax(230px,.8fr) minmax(280px,1.2fr);gap:24px;padding:22px 23px}.result-detail-grid h3{margin:0 0 13px;color:#263f58;font-size:14px}.result-ingredients>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid #edf0f4;font-size:13px}.result-ingredients>div span{font-weight:700}.result-ingredients>div b{font-size:13px}.result-ingredients>div small{grid-column:1/3;color:#48806c;font-size:12px}.result-ingredients>div.missing small,.result-ingredients>div.insufficient small{color:#b43f4d}.result-ingredients>div.unknown small{color:#9b6b1c}
 .result-method ol{display:grid;gap:10px;margin:0;padding:0;list-style:none}.result-method li{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start;gap:9px;color:#556779;font-size:13px;line-height:1.65}.result-method li span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#e4f1f4;color:#286e83;font:800 12px 'Nunito Sans',sans-serif}
 .result-method li div b,.result-method li div small{display:block}.result-method li div b{color:#263f58;font-size:13px}.result-method li div small{margin-top:3px;color:#74869a;font-size:11px}.result-utensil-title{margin-top:18px!important}.result-utensils{display:flex;flex-wrap:wrap;gap:6px}.result-utensils span{padding:5px 9px;border-radius:999px;background:#edf6fb;color:#315964;font-size:11px;font-weight:700}
-.synthesis-result-card>footer{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 23px;border-top:1px solid #e3e8ef}.synthesis-result-card>footer>span{color:#39755f;font-size:13px;font-weight:700}.synthesis-result-card>footer>span.warning{color:#b4535d}.start-cooking{min-height:44px;padding:0 22px;border-radius:999px;background:#21071f;color:#fff;font-size:14px;font-weight:700}.start-cooking:hover{background:#46203e}
+.synthesis-result-card>footer{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 23px;border-top:1px solid #e3e8ef}.synthesis-result-card>footer>span{color:#39755f;font-size:13px;font-weight:700}.synthesis-result-card>footer>span.warning{color:#b4535d}.start-cooking{min-height:44px;padding:0 22px;border-radius:999px;background:#21071f;color:#fff;font-size:14px;font-weight:700}.start-cooking:hover:not(:disabled){background:#46203e}.start-cooking:disabled{cursor:not-allowed;opacity:.45}
 .synthesis-unmatched{justify-content:flex-start;min-height:210px;background:#fff}.unmatched-mark{background:#fff1df;color:#bd6d2e}.synthesis-unmatched h2{margin:4px 0 10px;font-size:20px}.synthesis-unmatched p:not(.eyebrow){margin:0;color:#526779;font-size:14px;line-height:1.7}.synthesis-unmatched p strong{color:#b45534;font-size:16px}.synthesis-unmatched p span{display:block;margin-top:3px;color:#315964;font-weight:700}.synthesis-unmatched small{display:block;margin-top:9px;color:#798897;font-size:12px;line-height:1.55}
-@media (max-width:1100px){.synthesis-layout{grid-template-columns:280px minmax(0,1fr);gap:20px}.pot-stage{min-height:390px}.pot-content{width:min(61%,360px)}.result-detail-grid{grid-template-columns:1fr}.ingredient-option{grid-template-columns:40px minmax(0,1fr)}.ingredient-option>em{grid-column:2}.ingredient-option>strong{top:14px}.ingredient-option>.ingredient-stock-warning{grid-column:2}}
+@media (max-width:1100px){.synthesis-logic{grid-template-columns:1fr}.synthesis-layout{grid-template-columns:280px minmax(0,1fr);gap:20px}.pot-stage{min-height:390px}.pot-content{width:min(61%,360px)}.result-detail-grid{grid-template-columns:1fr}.ingredient-option{grid-template-columns:40px minmax(0,1fr)}.ingredient-option>em{grid-column:2}.ingredient-option>strong{top:14px}.ingredient-option>.ingredient-stock-warning{grid-column:2}}
 @media (max-width:760px){.synthesis-intro{align-items:flex-start}.synthesis-count{align-self:stretch;justify-content:flex-start;padding:9px 13px}.synthesis-layout{grid-template-columns:1fr;gap:22px}.ingredient-list{max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ingredient-option{min-height:88px;border:1px solid #e0e7ef;border-radius:7px}.ingredient-option:hover,.ingredient-option:focus-visible{transform:none}.synthesis-toolbar{min-height:58px}.pot-stage{min-height:390px}.pot-assembly{top:108px;width:100%;height:245px}.pot-rim{width:78%;height:86px}.pot-body{width:68%;height:142px}.pot-content{width:62%;margin-top:-80px}.pot-ingredients{grid-template-columns:1fr;gap:6px}.pot-ingredient{min-height:51px;padding:6px 8px}.synthesis-result-slot{min-height:260px}.synthesis-result-card>header{grid-template-columns:54px minmax(0,1fr);padding:18px}.result-art{width:54px;height:54px}.result-time{grid-column:2;display:flex;align-items:baseline;gap:5px;padding:0;border:0;text-align:left}.result-time strong,.result-time span{display:inline}.result-detail-grid{padding:18px}.synthesis-result-card>footer{align-items:flex-start;flex-direction:column;padding:15px 18px}.start-cooking{width:100%}.synthesis-loading,.synthesis-error,.synthesis-result-empty,.synthesis-unmatched{padding:20px}.synthesis-error{align-items:flex-start;flex-wrap:wrap}.synthesis-error button{width:100%;margin:0}.synthesis-unmatched{align-items:flex-start}}
 @media (max-width:420px){.ingredient-list{grid-template-columns:1fr}.pot-stage{min-height:380px}.pot-content{width:66%}.pot-assembly{top:104px}.pot-rim{width:84%}.pot-body{width:73%}.pot-handle{width:18%}.synthesis-notice{max-width:calc(100% - 24px);white-space:normal;text-align:center}}
 @media (prefers-reduced-motion:reduce){.pot-stage,.ingredient-option,.clear-synthesis{transition:none}.pot-stage.is-bouncing .pot-assembly,.pot-stage.is-bouncing .pot-content,.matching-spinner{animation:none}}

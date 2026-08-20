@@ -95,8 +95,9 @@ public class ShelfLifeRiskService {
                 "severity", incident.getSeverity().name(), "direction", incident.getDirection(),
                 "exposureMinutes", changed.getExposureMinutes(), "incidentRiskMinutes", changed.getRiskMinutes(),
                 "cumulativeRiskMinutes", totalRisk));
+        Integer profileVersion = profile == null ? previous.getProfileVersion() : Integer.valueOf(profile.getProfileVersion());
         assessments.save(new ShelfLifeAssessment(UuidV7.next(), batch.getId(),
-                profile == null ? previous.getProfileVersion() : profile.getProfileVersion(), estimated, base, totalRisk,
+                profileVersion, estimated, base, totalRisk,
                 AssessmentSource.MEASURED_ENVIRONMENT, "MEDIUM", status,
                 base == null ? "已记录环境异常，但该批次没有基础到期依据" : "已按实测环境异常累计风险时间；恢复正常后不会返还已扣减期限",
                 impact, now));

@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AssistantService {
     private static final Set<String> CLIENT_ACTIONS=Set.of(
             "NAVIGATE","ADD_INVENTORY","ADJUST_INVENTORY","DELETE_INVENTORY",
-            "FIND_RECIPES","BOOKMARK_RECIPE","START_COOKING","ADD_RECIPE_MISSING",
+            "FIND_RECIPES","BOOKMARK_RECIPE","START_COOKING",
             "RECORD_MEAL","DELETE_MEAL","ADD_SHOPPING","UPDATE_SHOPPING_STATUS",
             "DELETE_SHOPPING","STORE_SHOPPING","EXPORT_SHOPPING","UPDATE_PREFERENCES",
             "UPDATE_ZONE","MARK_NOTIFICATION_READ");
