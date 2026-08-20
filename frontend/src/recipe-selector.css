@@ -14,6 +14,52 @@
   width: min(100%, 600px);
 }
 
+.cartoon-art {
+  isolation: isolate;
+}
+
+.cartoon-art > b,
+.cartoon-art > .recipe-art-actions,
+.candidate-card .candidate-check {
+  z-index: 5;
+}
+
+.ai-recipe-modal textarea {
+  width: 100%;
+  min-height: 112px;
+  margin-top: 7px;
+  padding: 13px 14px;
+  resize: vertical;
+  border: 1px solid #b9cfe1;
+  border-radius: 8px;
+  background: #fbfdff;
+  color: #203a5a;
+  font: inherit;
+  line-height: 1.75;
+  outline: none;
+}
+
+.ai-recipe-modal textarea:focus {
+  border-color: #5f88b5;
+  box-shadow: 0 0 0 3px rgba(95, 136, 181, .14);
+}
+
+.ai-recipe-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.ai-recipe-hints span {
+  padding: 5px 9px;
+  border: 1px solid #c5d9ea;
+  border-radius: 999px;
+  background: #edf6fd;
+  color: #426f9f;
+  font-size: var(--text-caption);
+}
+
 .inventory-selection-toolbar {
   display: flex;
   align-items: center;

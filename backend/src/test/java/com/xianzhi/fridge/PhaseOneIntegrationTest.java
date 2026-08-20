@@ -62,7 +62,7 @@ class PhaseOneIntegrationTest {
         @Primary
         AssistantGenerationPort testAssistantGenerationPort() {
             return (userMessage, page, contextJson) ->
-                    new AssistantGenerationPort.GeneratedAnswer("测试模型回答", "test-chat", false);
+                    new AssistantGenerationPort.GeneratedAnswer("测试模型回答", "test-chat", false, null);
         }
     }
 

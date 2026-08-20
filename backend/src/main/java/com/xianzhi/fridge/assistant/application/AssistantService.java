@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AssistantService {
+    private static final Set<String> CLIENT_ACTIONS=Set.of(
+            "NAVIGATE","ADD_INVENTORY","ADJUST_INVENTORY","DELETE_INVENTORY",
+            "FIND_RECIPES","BOOKMARK_RECIPE","START_COOKING","ADD_RECIPE_MISSING",
+            "RECORD_MEAL","DELETE_MEAL","ADD_SHOPPING","UPDATE_SHOPPING_STATUS",
+            "DELETE_SHOPPING","STORE_SHOPPING","EXPORT_SHOPPING","UPDATE_PREFERENCES",
+            "UPDATE_ZONE","MARK_NOTIFICATION_READ");
     private final AssistantStore store;private final AssistantContextAssembler contexts;private final ShoppingService shopping;
     private final IdempotencyService idempotency;private final AssistantProperties properties;private final AssistantGenerationPort generation;
     private final ObjectMapper mapper;private final Clock clock;
@@ -49,9 +56,15 @@ public class AssistantService {
         store.message(UuidV7.next(),conversationId,userId,"USER",request.content(),request.page(),selection,"[]",snapshot,context.version(),null,"ACCEPTED",now);
         List<AssistantContracts.Citation> citations=context.inventory().stream().limit(3)
                 .map(item->new AssistantContracts.Citation("INVENTORY_ITEM",item.id(),item.name()+(item.lowStock()?"：库存偏低":""))).toList();
+        var generated=generation.generate(request.content(),request.page(),context.json());
         List<AssistantContracts.ProposalView> proposals=new ArrayList<>();String text=request.content();
-        if(text.contains("菜谱")||text.contains("吃什么")||text.contains("做什么")){
-            proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"CREATE_RECIPE_CANDIDATES","生成当前库存菜谱候选",selection,context.version(),now.plus(Duration.ofMinutes(30)),now));
+        if(generated.action()!=null&&CLIENT_ACTIONS.contains(generated.action().command())){
+            ObjectNode payload=mapper.createObjectNode();payload.put("command",generated.action().command());
+            payload.set("arguments",generated.action().arguments());
+            proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"APP_ACTION",generated.action().title(),json(payload),context.version(),now.plus(Duration.ofMinutes(30)),now));
+        }else if(text.contains("菜谱")||text.contains("吃什么")||text.contains("做什么")){
+            ObjectNode payload=mapper.createObjectNode();payload.put("command","FIND_RECIPES");payload.putObject("arguments").put("description",text).put("count",3);
+            proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"APP_ACTION","让 AI 按描述查找菜谱",json(payload),context.version(),now.plus(Duration.ofMinutes(30)),now));
         }else if(text.contains("采购")||text.contains("购物")||text.contains("买")){
             JsonNode selected=request.selection();
             if(selected!=null&&selected.hasNonNull("listId")&&selected.hasNonNull("itemName")){
@@ -60,7 +73,7 @@ public class AssistantService {
                 proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"CREATE_SHOPPING_CANDIDATE","加入购物清单",json(payload),context.version(),now.plus(Duration.ofMinutes(30)),now));
             }else{proposals.add(store.proposal(UuidV7.next(),userId,conversationId,"NAVIGATE","打开采购页面","{\"path\":\"/app/shopping\"}",context.version(),now.plus(Duration.ofMinutes(30)),now));}
         }
-        var generated=generation.generate(text,request.page(),context.json());String citationJson=json(citations);
+        String citationJson=json(citations);
         var assistant=store.message(UuidV7.next(),conversationId,userId,"ASSISTANT",generated.answer(),request.page(),selection,citationJson,snapshot,context.version(),generated.model(),"COMPLETED",clock.instant());
         var result=new AssistantContracts.MessageResponse(assistant,citations,proposals,generated.fallback());idempotency.save(userId,key,"POST",path,request,result,200);return result;
     }

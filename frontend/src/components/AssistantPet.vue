@@ -5,11 +5,13 @@ const props = defineProps({
   open: { type: Boolean, required: true },
   pageName: { type: String, required: true },
   messages: { type: Array, required: true },
+  proposals: { type: Array, default: () => [] },
+  busyProposalId: { type: String, default: null },
   input: { type: String, default: '' },
   image: { type: String, required: true },
 })
 
-const emit = defineEmits(['update:open', 'update:input', 'send'])
+const emit = defineEmits(['update:open', 'update:input', 'send', 'confirm', 'dismiss'])
 
 const rootRef = ref(null)
 const panelRef = ref(null)
@@ -183,14 +185,21 @@ watch(() => props.open, open => {
   <section ref="rootRef" class="ai-pet" :class="{ open, 'is-dragging': isDragging }" :style="rootStyle" aria-label="鲜知 AI 助手">
     <div v-if="open" ref="panelRef" class="ai-pet-panel" :style="panelStyle" role="dialog" aria-modal="false" aria-label="与鲜知助手对话">
       <header class="ai-pet-head">
-        <div><img class="ai-pet-mini" :src="image" alt="" /><div><small>鲜知 AI 助手</small><b>正在了解{{ pageName }}</b></div></div>
+        <div><img class="ai-pet-mini" :src="image" alt="" /><div><small>鲜知 AI 管家</small><b>可操作{{ pageName }}及全站功能</b></div></div>
         <button type="button" aria-label="关闭助手" @click="emit('update:open', false)"><span v-html="closeIcon"></span></button>
       </header>
       <div class="ai-pet-messages" aria-live="polite"><p v-for="message in messages" :key="message.id" :class="message.role">{{ message.text }}</p></div>
+      <div v-if="proposals.length" class="ai-pet-actions" aria-label="待确认操作">
+        <article v-for="proposal in proposals" :key="proposal.id">
+          <span>AI 准备执行</span>
+          <b>{{ proposal.title }}</b>
+          <div><button type="button" class="dismiss" :disabled="busyProposalId === proposal.id" @click="emit('dismiss', proposal)">取消</button><button type="button" class="confirm" :disabled="Boolean(busyProposalId)" @click="emit('confirm', proposal)">{{ busyProposalId === proposal.id ? '执行中…' : '确认执行' }}</button></div>
+        </article>
+      </div>
       <div class="ai-pet-prompts">
-        <button type="button" @click="emit('send', '怎么添加食材')">添加食材</button>
+        <button type="button" @click="emit('send', '在冷藏区添加 100 克鸡蛋')">添加食材</button>
         <button type="button" @click="emit('send', '冰箱状态如何')">冰箱状态</button>
-        <button type="button" @click="emit('send', '帮我生成一道菜谱')">生成菜谱</button>
+        <button type="button" @click="emit('send', '用现有库存帮我找三道快手菜谱')">AI 找菜谱</button>
       </div>
       <form class="ai-pet-input" @submit.prevent="emit('send', '')">
         <input :value="input" placeholder="问问鲜知助手" aria-label="输入问题" @input="emit('update:input', $event.target.value)" />

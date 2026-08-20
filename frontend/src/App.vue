@@ -5,6 +5,7 @@ import { api } from './services/api'
 import { logout, session, setFridge } from './session'
 import pixelPet from './assets/xianling-pixel-pet-transparent.png'
 import AssistantPet from './components/AssistantPet.vue'
+import RecipeCartoonArt from './components/RecipeCartoonArt.vue'
 import NameSuggestionInput from './components/NameSuggestionInput.vue'
 import DeliciousSynthesis from './components/DeliciousSynthesis.vue'
 import { clampZoneCount, MAX_ZONES, MIN_ZONES, ZONE_KINDS } from './components/fridgeLayouts'
@@ -35,6 +36,7 @@ const shoppingGroup = ref('全部')
 const assistantInput = ref('')
 const assistantConversationId = ref(null)
 const assistantProposals = reactive([])
+const assistantActionBusy = ref(null)
 const voiceFileInput = ref(null)
 const voiceDraft = ref(null)
 const voiceUploadInProgress = ref(false)
@@ -212,10 +214,14 @@ const recipeColors = ['#dfe9df', '#e8edd6', '#f1e1d6', '#dce7ef', '#eee3d5']
 function recipeFallbackArt(item, ingredients, index) {
   const text = [item.name, item.cuisine, ...ingredients.map(ingredient => ingredient.name)].filter(Boolean).join(' ')
   const choices = [
-    [/汤|粥|羹/, '🥣'], [/面|粉/, '🍜'], [/饭|米/, '🍚'], [/鸡/, '🍗'], [/牛|羊|猪|肉/, '🥩'],
-    [/鱼|虾|海鲜/, '🐟'], [/蛋/, '🍳'], [/沙拉|生菜/, '🥗'], [/西兰花|蔬菜|豆角|茄子/, '🥦'], [/饼|卷/, '🥞'],
+    [/汤|粥|羹|燕麦|酸奶|水果杯/, '🥣'], [/面|粉/, '🍜'], [/饭|米/, '🍚'], [/鸡/, '🍗'], [/牛|羊|猪|肉/, '🥩'],
+    [/鱼|虾|海鲜/, '🐟'], [/蛋/, '🍳'], [/豆腐|豆丝|豆角/, '🫘'], [/土豆|薯/, '🥔'], [/沙拉|生菜/, '🥗'], [/西兰花|蔬菜|茄子/, '🥦'], [/饼|卷/, '🥞'],
   ]
   return choices.find(([pattern]) => pattern.test(text))?.[1] || ['🍛', '🥘', '🍝', '🍱'][index % 4]
+}
+function aiCartoonImage(item) {
+  const provenance = [item.source, item.attribution, item.imageAttribution].filter(Boolean).join(' ')
+  return item.imageUrl && /AI_GENERATED|AI generated|AI 生成|卡通|cartoon|illustration/i.test(provenance) ? item.imageUrl : ''
 }
 function mapRecipe(item, index = 0) {
   const components = item.ingredients || []
@@ -241,7 +247,7 @@ function mapRecipe(item, index = 0) {
     favorite: Boolean(item.bookmarked), collected: Boolean(item.bookmarked), missing, base: Number(primary?.quantity || item.servings || 1),
     servings: Number(item.servings || 1), ingredients, seasonings, steps: item.steps || [], warnings: item.validationWarnings || [],
     source: item.source, sourceVersion: item.sourceVersion, attribution: item.attribution,
-    imageUrl: item.imageUrl || '', imageSourceUrl: item.imageSourceUrl || '',
+    imageUrl: item.imageUrl || '', cartoonImageUrl: aiCartoonImage(item), imageSourceUrl: item.imageSourceUrl || '',
     imageAttribution: item.imageAttribution || '', imageFailed: false,
   }
 }
@@ -554,15 +560,15 @@ async function generateRecipes(prompt = '', inventory = foods, selectedCount = 0
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = selectedCount
     recipeFilter.value = '全部推荐'
-    notify(`已从菜谱数据库筛选 ${generatedRecipes.value.length} 张候选菜谱`)
+    notify(`AI 已找到 ${generatedRecipes.value.length} 个菜谱方案`)
     return true
   } catch {
-    notify('菜谱筛选失败，请检查服务后重试')
+    notify('AI 菜谱搜索失败，请检查服务后重试')
     return false
   } finally { isGeneratingRecipe.value = false }
 }
 function generateInventoryRecipe() { return generateRecipes() }
-async function generateNamedRecipe() { if (!recipeNameDraft.value.trim()) return notify('请填写菜名'); await generateRecipes(recipeNameDraft.value.trim()); showRecipeNameGenerator.value = false; recipeNameDraft.value = '' }
+async function generateNamedRecipe() { if (!recipeNameDraft.value.trim()) return notify('请描述想要的菜谱'); await generateRecipes(recipeNameDraft.value.trim()); showRecipeNameGenerator.value = false; recipeNameDraft.value = '' }
 function openInventoryRecipeSelector() { selectedInventoryIngredientIds.value = []; showInventoryRecipeSelector.value = true }
 function closeInventoryRecipeSelector() { if (isGeneratingRecipe.value) return; selectedInventoryIngredientIds.value = []; showInventoryRecipeSelector.value = false }
 function toggleInventoryRecipeIngredient(food) { const index = selectedInventoryIngredientIds.value.indexOf(food.id); index >= 0 ? selectedInventoryIngredientIds.value.splice(index, 1) : selectedInventoryIngredientIds.value.push(food.id) }
@@ -585,7 +591,7 @@ async function saveGeneratedRecipes() {
     generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = 0
-    notify(`已收藏 ${selected.length} 张菜谱`)
+    notify(`已将 ${selected.length} 道 AI 搜索结果加入我的菜谱`)
   } catch (exception) { notify(exception.message || '菜谱收藏失败') }
 }
 
@@ -594,7 +600,150 @@ function discardGeneratedRecipes() {
   generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
   selectedGeneratedIds.value = []
   generatedRecipeSelectionCount.value = 0
-  notify('已放弃本次候选菜谱')
+  notify('已取消本次 AI 菜谱搜索')
+}
+function findByIdOrName(collection, args = {}) {
+  const id = args.itemId || args.recipeId || args.mealId || args.notificationId || args.zoneId
+  if (id) {
+    const exact = collection.find(item => String(item.id) === String(id))
+    if (exact) return exact
+  }
+  const names = [args.itemName, args.recipeName, args.mealName, args.title, args.zoneName, args.name].filter(Boolean).map(value => String(value).trim())
+  if (!names.length) return null
+  return collection.find(item => [item.name, item.title, item.food].filter(Boolean).some(value => names.some(name => value === name || value.includes(name) || name.includes(value)))) || null
+}
+
+async function executeAssistantAction(payload = {}) {
+  const command = String(payload.command || '').toUpperCase()
+  const args = payload.arguments && typeof payload.arguments === 'object' ? payload.arguments : {}
+  if (command === 'NAVIGATE') {
+    const allowed = ['home', 'inventory', 'expiry', 'recipes', 'synthesis', 'cooking', 'diet', 'shopping', 'settings', 'environment']
+    if (!allowed.includes(args.page)) throw new Error('AI 提供的页面无效')
+    go(args.page)
+    return `已打开${assistantPageName.value}`
+  }
+  if (command === 'ADD_INVENTORY') {
+    if (!args.name || args.quantity === undefined) throw new Error('添加食材需要名称和数量')
+    const zone = findByIdOrName(zones.value, args) || zones.value[0]
+    const unitName = args.unit || 'piece'
+    await api.createInventoryItem({
+      fridgeId: session.fridge?.id, name: String(args.name).trim(), category: args.category || 'OTHER', defaultUnit: unitName,
+      batches: [{ zoneId: zone?.id || null, storedAt: new Date().toISOString(), shelfLifeDays: Number(args.shelfLifeDays ?? 7), quantity: Number(args.quantity), unit: unitName, remindAt: null }],
+    })
+    await refreshInventory()
+    return `${args.name}已加入${zone?.name || '库存'}`
+  }
+  if (command === 'ADJUST_INVENTORY') {
+    const food = findByIdOrName(foods, args)
+    if (!food?.batchId || args.quantity === undefined) throw new Error('没有找到要调整的库存食材或数量')
+    await api.transactInventoryBatch(food.batchId, { type: 'ADJUST', quantity: Number(args.quantity), unit: args.unit || food.apiUnit || apiUnit(food.unit), reason: 'AI_CONFIRMED' })
+    await refreshInventory()
+    return `${food.name}已调整为 ${args.quantity}${displayUnit(args.unit || food.apiUnit)}`
+  }
+  if (command === 'DELETE_INVENTORY') {
+    const food = findByIdOrName(foods, args)
+    if (!food) throw new Error('没有找到要移出的食材')
+    await api.deleteInventoryItem(food.id)
+    await refreshInventory()
+    return `${food.name}已移出库存`
+  }
+  if (command === 'FIND_RECIPES') {
+    const description = String(args.description || '').trim()
+    if (!description) throw new Error('请描述想找的菜谱')
+    const succeeded = await generateRecipes(description)
+    if (!succeeded) throw new Error('AI 暂时没有找到合适菜谱')
+    go('recipes')
+    return `已按“${description}”查找菜谱，请选择要添加的方案`
+  }
+  if (command === 'BOOKMARK_RECIPE') {
+    const recipe = findByIdOrName(recipes, args)
+    if (!recipe) throw new Error('没有找到这道菜谱')
+    const bookmarked = args.bookmarked !== false
+    await api.setRecipeBookmark(recipe.id, bookmarked)
+    await refreshRecipes()
+    return bookmarked ? `已收藏${recipe.name}` : `已取消收藏${recipe.name}`
+  }
+  if (command === 'START_COOKING') {
+    const recipe = findByIdOrName(recipes, args)
+    if (!recipe) throw new Error('没有找到这道菜谱')
+    openCooking(recipe)
+    return `已打开${recipe.name}的做菜模式`
+  }
+  if (command === 'ADD_RECIPE_MISSING') {
+    const recipe = findByIdOrName(recipes, args)
+    if (!recipe) throw new Error('没有找到这道菜谱')
+    await addMissing(recipe)
+    return `${recipe.name}的缺料已加入采购清单`
+  }
+  if (command === 'RECORD_MEAL') {
+    if (!args.name) throw new Error('记录饮食需要菜品名称')
+    const estimate = await api.estimateMealNutrition({ dishName: args.name, amount: args.amount || null, unit: args.unit || 'serving' })
+    await api.createMeal({ mealAt: new Date().toISOString(), mealType: args.mealType || '加餐', name: args.name, servings: 1, calories: estimate.calories, protein: estimate.protein, fat: estimate.fat, carbs: estimate.carbs, estimated: estimate.estimated, nutritionSource: estimate.source })
+    await Promise.all([refreshMeals(), refreshDietAnalytics()])
+    return `已记录${args.name}`
+  }
+  if (command === 'DELETE_MEAL') {
+    const meal = findByIdOrName(mealRecords, args)
+    if (!meal) throw new Error('没有找到这条饮食记录')
+    await api.deleteMeal(meal.id)
+    await Promise.all([refreshMeals(), refreshDietAnalytics()])
+    return `已删除${meal.food}`
+  }
+  if (command === 'ADD_SHOPPING') {
+    if (!args.name) throw new Error('添加采购项需要名称')
+    const listId = await ensureShoppingList()
+    await api.createShoppingItem(listId, { name: args.name, category: args.category || 'OTHER', quantity: Number(args.quantity ?? 1), unit: args.unit || 'piece', note: args.note || 'AI 确认添加', sourceType: 'AI_CONFIRMED' })
+    await refreshShopping()
+    return `${args.name}已加入采购清单`
+  }
+  if (command === 'UPDATE_SHOPPING_STATUS') {
+    const item = findByIdOrName(shopping, args)
+    if (!item) throw new Error('没有找到这个采购项')
+    if (String(args.status).toUpperCase() === 'STORED') { startPurchase(item); return `请确认${item.name}的实际入库数量和位置` }
+    await api.updateShoppingItem(item.id, { status: String(args.status || 'PENDING').toUpperCase() })
+    await refreshShopping()
+    return `${item.name}的采购状态已更新`
+  }
+  if (command === 'DELETE_SHOPPING') {
+    const item = findByIdOrName(shopping, args)
+    if (!item) throw new Error('没有找到这个采购项')
+    await api.deleteShoppingItem(item.id)
+    await refreshShopping()
+    return `${item.name}已从采购清单删除`
+  }
+  if (command === 'STORE_SHOPPING') {
+    const item = findByIdOrName(shopping, args)
+    if (!item) throw new Error('没有找到这个采购项')
+    startPurchase(item)
+    return `请确认${item.name}的实际入库数量和位置`
+  }
+  if (command === 'EXPORT_SHOPPING') { exportShopping(); return '采购清单已导出' }
+  if (command === 'UPDATE_PREFERENCES') {
+    const payload = {
+      tastes: args.tastes ?? [...preferences.tastes], cuisines: args.cuisines ?? [...preferences.cuisine],
+      allergies: args.allergies ?? [...preferences.allergies], dislikes: args.dislikes ?? [...preferences.dislikes],
+      dietaryGoal: args.dietaryGoal ?? (preferences.goal || null), calorieTarget: Number(args.calorieTarget ?? preferences.target),
+      temperatureUnit: args.temperatureUnit ?? unit.value,
+    }
+    await api.updatePreferences(payload)
+    await refreshPreferences()
+    return '饮食偏好已更新，后续菜谱会自动遵循'
+  }
+  if (command === 'UPDATE_ZONE') {
+    const zone = findByIdOrName(zones.value, args)
+    if (!zone) throw new Error('没有找到这个冰箱分区')
+    const updated = await api.updateZone(zone.id, { name: args.name ?? zone.name, targetTemperatureC: Number(args.targetTemperatureC ?? zone.targetTemperature), targetHumidityPct: Number(args.targetHumidityPct ?? zone.targetHumidity) })
+    Object.assign(zone, { name: updated.name, targetTemperature: Number(updated.targetTemperatureC), targetHumidity: Number(updated.targetHumidityPct) })
+    return `${zone.name}的目标环境已更新`
+  }
+  if (command === 'MARK_NOTIFICATION_READ') {
+    const item = findByIdOrName(environmentNotifications, args)
+    if (!item) throw new Error('没有找到这条提醒')
+    await api.updateNotification(item.id, { read: true })
+    await refreshEnvironment()
+    return '提醒已标记为已读'
+  }
+  throw new Error('这个 AI 动作暂不受支持')
 }
 function openCooking(recipe) { cookingRecipe.value = recipe; cookingWeight.value = recipe.base; activeCookingStep.value = 0; go('cooking') }
 async function completeCooking() {
@@ -911,14 +1060,55 @@ async function sendAssistantMessage(preset = '') {
       const conversation = await api.createAssistantConversation('冰箱助手')
       assistantConversationId.value = conversation.id
     }
-    const response = await api.sendAssistantMessage(assistantConversationId.value, {
-      content: text, page: page.value, selection: {},
-    })
+    const selection = {
+      listId: shoppingListId.value || undefined, itemName: selectedFood.value?.name || selectedShopItem.value?.name || undefined,
+      quantity: selectedFood.value?.amount || undefined, unit: selectedFood.value?.apiUnit || undefined,
+      recipeId: cookingRecipe.value?.id || undefined, batchId: selectedFood.value?.batchId || undefined,
+      zoneId: selectedFood.value?.zoneId || undefined,
+    }
+    const response = await api.sendAssistantMessage(assistantConversationId.value, { content: text, page: page.value, selection })
     assistantMessages.push({ id: response.message.id, role: 'assistant', text: response.message.content })
     assistantProposals.splice(0, assistantProposals.length, ...(response.actionProposals || []))
   } catch (exception) {
     assistantMessages.push({ id: `error-${Date.now()}`, role: 'assistant', text: exception.message || '助手暂时不可用，请稍后重试。' })
   }
+}
+
+async function confirmAssistantAction(proposal) {
+  if (assistantActionBusy.value) return
+  assistantActionBusy.value = proposal.id
+  try {
+    const confirmed = await api.confirmAssistantProposal(proposal.id)
+    let outcome = ''
+    if (proposal.type === 'CREATE_SHOPPING_CANDIDATE') {
+      await refreshShopping()
+      outcome = '采购项已经加入清单'
+    } else if (proposal.type === 'NAVIGATE') {
+      const target = String(confirmed.result?.path || '').split('/').filter(Boolean).at(-1)
+      if (target) go(target)
+      outcome = '页面已打开'
+    } else {
+      outcome = await executeAssistantAction(confirmed.result)
+    }
+    const index = assistantProposals.findIndex(item => item.id === proposal.id)
+    if (index >= 0) assistantProposals.splice(index, 1)
+    assistantMessages.push({ id: `action-${Date.now()}`, role: 'assistant', text: `完成：${outcome}` })
+    notify(outcome)
+  } catch (exception) {
+    assistantMessages.push({ id: `action-error-${Date.now()}`, role: 'assistant', text: exception.message || '操作没有完成，请重试。' })
+  } finally { assistantActionBusy.value = null }
+}
+
+async function dismissAssistantAction(proposal) {
+  if (assistantActionBusy.value) return
+  assistantActionBusy.value = proposal.id
+  try {
+    await api.dismissAssistantProposal(proposal.id)
+    const index = assistantProposals.findIndex(item => item.id === proposal.id)
+    if (index >= 0) assistantProposals.splice(index, 1)
+  } catch (exception) {
+    assistantMessages.push({ id: `dismiss-error-${Date.now()}`, role: 'assistant', text: exception.message || '暂时无法取消这个操作。' })
+  } finally { assistantActionBusy.value = null }
 }
 </script>
 
@@ -968,9 +1158,9 @@ async function sendAssistantMessage(preset = '') {
         </template>
 
         <template v-else-if="page === 'recipes'">
-          <section class="page-intro"><div><p class="eyebrow">菜谱数据库 · 库存与偏好匹配</p><h1>菜谱筛选</h1><p>已避开 {{ preferences.allergies.concat(preferences.dislikes).join('、') }}，并优先匹配{{ preferences.goal }}目标。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>选择库存食材</button><button class="secondary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('edit', 18)"></span>按菜名筛选</button><button class="primary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe"><span v-html="icon('spark', 18)"></span>{{ isGeneratingRecipe ? '筛选中' : '筛选 3 张菜谱' }}</button></div></section>
-           <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">数据库候选结果 · {{ generatedRecipeMeta.fallback ? '规则排序' : generatedRecipeMeta.model }}</p><h2>{{ generatedRecipeSelectionCount ? `按已选 ${generatedRecipeSelectionCount} 项库存食材筛选` : '选择想收藏的菜谱' }}</h2><p>{{ generatedRecipeMeta.rationale || '已结合库存、偏好和营养目标排序。' }}</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消本次筛选</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">收藏已选 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art" :class="{ 'has-photo': recipe.imageUrl && !recipe.imageFailed }" :style="{ background: recipe.color }"><img v-if="recipe.imageUrl && !recipe.imageFailed" :src="recipe.imageUrl" :alt="recipe.name" loading="lazy" @error="recipe.imageFailed = true" /><span v-else>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><a v-if="recipe.imageSourceUrl && !recipe.imageFailed" class="recipe-image-source" :href="recipe.imageSourceUrl" target="_blank" rel="noreferrer" @click.stop>{{ recipe.imageAttribution || '图片来源' }}</a></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></div></section>
-          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art" :class="{ 'has-photo': recipe.imageUrl && !recipe.imageFailed }" :style="{ background: recipe.color }"><img v-if="recipe.imageUrl && !recipe.imageFailed" :src="recipe.imageUrl" :alt="recipe.name" loading="lazy" @error="recipe.imageFailed = true" /><span v-else>{{ recipe.art }}</span><b>{{ recipe.match }}% 匹配</b><a v-if="recipe.imageSourceUrl && !recipe.imageFailed" class="recipe-image-source" :href="recipe.imageSourceUrl" target="_blank" rel="noreferrer" @click.stop>{{ recipe.imageAttribution || '图片来源' }}</a><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>请确认后端已导入并发布菜谱数据。</p></section>
+          <section class="page-intro"><div><p class="eyebrow">AI 菜谱库 · 搜索、生成与库存匹配</p><h1>AI 菜谱</h1><p>基础菜谱开箱即用；新增菜谱由 AI 按你的描述查找，并自动遵循忌口与{{ preferences.goal || '饮食' }}目标。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>指定库存食材</button><button class="primary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('spark', 18)"></span>AI 搜索并添加</button><button class="secondary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe">{{ isGeneratingRecipe ? 'AI 搜索中' : '按全部库存推荐' }}</button></div></section>
+           <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">AI 搜索结果 · {{ generatedRecipeMeta.fallback ? '基础菜谱智能匹配' : generatedRecipeMeta.model }}</p><h2>{{ generatedRecipeSelectionCount ? `已优先使用 ${generatedRecipeSelectionCount} 项库存食材` : '选择要加入的菜谱' }}</h2><p>{{ generatedRecipeMeta.rationale || 'AI 已结合描述、库存、偏好和营养目标完成搜索。' }}</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">加入我的菜谱 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art cartoon-art"><RecipeCartoonArt :name="recipe.name" :art="recipe.art" :ingredients="recipe.ingredients" :color="recipe.color" :image-url="recipe.cartoonImageUrl" /><b>{{ recipe.match }}% 匹配</b></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></div></section>
+          <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art cartoon-art"><RecipeCartoonArt :name="recipe.name" :art="recipe.art" :ingredients="recipe.ingredients" :color="recipe.color" :image-url="recipe.cartoonImageUrl" /><b>{{ recipe.match }}% 匹配</b><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="recipe.missing.length" @click="addMissing(recipe)">加入缺料</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>让 AI 按你的描述搜索并添加一道菜谱。</p></section>
         </template>
 
         <template v-else-if="page === 'cooking'">
@@ -1012,8 +1202,8 @@ async function sendAssistantMessage(preset = '') {
     <div v-if="showMealEditor" class="modal-backdrop" @click.self="showMealEditor = false"><form class="modal compact-modal meal-modal" @submit.prevent="recordMeal"><div class="modal-head"><div><p class="eyebrow">饮食记录</p><h2>记录一餐</h2></div><button type="button" @click="showMealEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">菜品名称<NameSuggestionInput v-model="mealDraft.name" context="dish" placeholder="例如：鸡胸肉豆腐煲" aria-label="菜品名称" /></label><label>餐次<select v-model="mealDraft.meal"><option>早餐</option><option>午餐</option><option>晚餐</option><option>加餐</option></select></label><label>数量 / 重量<input v-model="mealDraft.amount" placeholder="可选" /></label><label>单位<select v-model="mealDraft.unit"><option>克</option><option>份</option><option>个</option></select></label></div><div class="meal-estimate" :class="{ loading: isEstimatingMeal, error: mealEstimateError }"><span v-html="icon('spark', 20)"></span><div v-if="isEstimatingMeal"><b>正在查询营养数据</b><small>根据菜谱数据库或规则估算</small></div><div v-else-if="mealEstimate"><b>估算 {{ mealEstimate.calories }} 千卡</b><small>{{ mealEstimate.source }} · 蛋白质约 {{ mealEstimate.protein ?? '—' }} 克</small></div><div v-else-if="mealEstimateError"><b>{{ mealEstimateError }}</b><button type="button" class="text-btn" @click="estimateMealNutrition">重新估算</button></div><div v-else><b>输入菜品后查询营养数据</b><small>结果会标明数据库或规则来源</small></div></div><div class="modal-actions lowered-actions"><button type="button" class="secondary-btn" @click="showMealEditor = false">取消</button><button class="primary-btn" :disabled="!mealEstimate || isEstimatingMeal" >记录饮食</button></div></form></div>
     <div v-if="showShoppingEditor" class="modal-backdrop" @click.self="showShoppingEditor = false"><form class="modal compact-modal" @submit.prevent="saveShoppingItem"><div class="modal-head"><div><p class="eyebrow">采购清单</p><h2>{{ shopDraft.id ? '编辑项目' : '添加项目' }}</h2></div><button type="button" @click="showShoppingEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">项目名称<NameSuggestionInput v-model="shopDraft.name" context="ingredient" placeholder="例如：燕麦片" aria-label="采购项目名称" /></label><label>分类<select v-model="shopDraft.group"><option>蔬果</option><option>主食</option><option>调味品</option><option>菜谱缺料</option><option>其他</option></select></label><label>数量 / 单位<input v-model="shopDraft.amount" placeholder="例如：1 袋" /></label><label class="wide">备注<input v-model="shopDraft.note" placeholder="例如：低于常用库存" /></label><label>采购状态<select v-model="shopDraft.status" :disabled="shopDraft.status === 'stored'"><option value="pending">待购买</option><option value="purchased">已购买</option><option v-if="shopDraft.status === 'stored'" value="stored">已入库</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showShoppingEditor = false">取消</button><button class="primary-btn">保存项目</button></div></form></div>
     <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>参考保质期<input v-model="purchaseDraft.shelf" type="number" /></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
-    <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">菜谱数据库筛选</p><h2>选择库存食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择优先使用的食材，系统会结合库存和饮食偏好筛选 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于筛选菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? '筛选中' : `使用已选食材筛选 (${selectedInventoryFoods.length})` }}</button></div></form></div>
-    <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">菜谱数据库筛选</p><h2>按菜名筛选</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜名<NameSuggestionInput v-model="recipeNameDraft" context="dish" placeholder="例如：番茄炒蛋" aria-label="菜名" /></label><p class="recipe-generator-note">系统会结合菜名、当前库存和饮食偏好筛选最多 3 个已发布菜谱。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="isGeneratingRecipe">{{ isGeneratingRecipe ? '筛选中' : '筛选 3 张菜谱' }}</button></div></form></div>
-    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :image="pixelPet" @send="sendAssistantMessage" />
+    <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">AI 库存配菜</p><h2>选择优先食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择想优先消耗的食材，AI 会结合完整库存、饮食偏好和基础菜谱找出 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于生成菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 搜索中' : `用已选食材找菜谱 (${selectedInventoryFoods.length})` }}</button></div></form></div>
+    <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal ai-recipe-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 搜索与生成</p><h2>描述你想要的菜谱</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜谱描述<textarea v-model.trim="recipeNameDraft" rows="4" maxlength="500" placeholder="例如：想吃一道 20 分钟能完成、微辣、高蛋白的鸡胸肉菜，尽量用掉西兰花" aria-label="菜谱描述"></textarea></label><div class="ai-recipe-hints"><span>可描述菜名</span><span>口味与用时</span><span>想用的食材</span><span>营养目标</span></div><p class="recipe-generator-note">AI 会先搜索基础菜谱库，再根据你的描述、库存和偏好生成最合适的候选；菜谱插图统一使用贴合菜名的卡通风格。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="!recipeNameDraft.trim() || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 正在搜索' : 'AI 搜索菜谱' }}</button></div></form></div>
+    <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :proposals="assistantProposals" :busy-proposal-id="assistantActionBusy" :image="pixelPet" @send="sendAssistantMessage" @confirm="confirmAssistantAction" @dismiss="dismissAssistantAction" />
   </div>
 </template>

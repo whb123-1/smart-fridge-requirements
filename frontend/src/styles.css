@@ -509,6 +509,7 @@ body,button,input,select,textarea{letter-spacing:0}
 .ai-pet-prompts button{min-height:34px;font-size:var(--text-caption)}
 .ai-pet-input input{min-height:42px;font-size:var(--text-body)}
 .ai-pet-input button{width:42px;min-height:42px}
+.ai-pet-actions{display:grid;gap:8px;padding:0 14px 12px;background:#fbfeff}.ai-pet-actions article{padding:11px;border:1px solid #9fd4e7;border-left:4px solid #2784ad;border-radius:9px;background:linear-gradient(135deg,#fff 0%,#edfaff 100%);box-shadow:0 5px 14px rgba(28,111,150,.08)}.ai-pet-actions span,.ai-pet-actions b{display:block}.ai-pet-actions span{color:#5b8295;font-size:var(--text-caption);letter-spacing:.06em}.ai-pet-actions b{margin-top:4px;color:#16445a;font-size:var(--text-secondary);line-height:1.55}.ai-pet-actions article>div{display:flex;justify-content:flex-end;gap:7px;margin-top:10px}.ai-pet-actions button{min-height:32px;padding:0 10px;border-radius:6px;font-size:var(--text-caption)}.ai-pet-actions .dismiss{border:1px solid #b9d6e2;background:#fff;color:#55788b}.ai-pet-actions .confirm{border:1px solid #2784ad;background:#2784ad;color:#fff}.ai-pet-actions button:disabled{opacity:.55;cursor:wait}
 
 @media (min-width:761px){
   .home-content{

@@ -54,6 +54,7 @@ class OpenAiAdaptersTest {
         var generated = adapter.generate("做什么菜", "inventory", "{}");
 
         assertThat(generated.answer()).isEqualTo("建议先用鸡蛋");
+        assertThat(generated.action()).isNull();
         assertThat(generated.fallback()).isFalse();
         server.verify(postRequestedFor(urlEqualTo("/v1/chat/completions"))
                 .withHeader("Authorization", equalTo("Bearer deepseek-secret-for-test"))
@@ -66,6 +67,18 @@ class OpenAiAdaptersTest {
                 .isInstanceOf(ApiException.class)
                 .satisfies(exception -> assertThat(((ApiException) exception).getCode())
                         .isEqualTo("AI_PROVIDER_UNAVAILABLE"));
+    }
+
+    @Test
+    void assistantReturnsAValidatedAppAction() {
+        server.stubFor(post("/v1/chat/completions")
+                .willReturn(okJson("{\"choices\":[{\"message\":{\"content\":\"{\\\"answer\\\":\\\"可以添加，确认后执行。\\\",\\\"action\\\":{\\\"command\\\":\\\"ADD_INVENTORY\\\",\\\"title\\\":\\\"添加 100 克鸡蛋到冷藏区\\\",\\\"arguments\\\":{\\\"name\\\":\\\"鸡蛋\\\",\\\"quantity\\\":100,\\\"unit\\\":\\\"g\\\",\\\"category\\\":\\\"MEAT_EGG\\\",\\\"zoneName\\\":\\\"冷藏区\\\"}}}\"}}]}")));
+        var generated = new OpenAiAssistantGenerationAdapter(properties, client, mapper)
+                .generate("在冷藏区添加100g鸡蛋", "inventory", "{}");
+
+        assertThat(generated.action()).isNotNull();
+        assertThat(generated.action().command()).isEqualTo("ADD_INVENTORY");
+        assertThat(generated.action().arguments().path("quantity").asInt()).isEqualTo(100);
     }
 
     @Test
