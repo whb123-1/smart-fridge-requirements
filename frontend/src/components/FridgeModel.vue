@@ -431,7 +431,7 @@ function addInterior(zone, layout, parent) {
 }
 
 function zoneItemCount(zone) {
-  return props.foods.filter(food => Number(food.zoneId) === Number(zone.id)).length
+  return props.foods.filter(food => String(food.zoneId) === String(zone.id)).length
 }
 
 function zoneSnapshot(zone) {
