@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 public class AssistantController {
     private final AssistantService assistant;public AssistantController(AssistantService assistant){this.assistant=assistant;}
     @GetMapping("/briefing") public ApiEnvelope<AssistantContracts.Briefing> briefing(@AuthenticationPrincipal UserPrincipal p){return ApiEnvelope.ok(assistant.briefing(p.userId()));}
+    @GetMapping("/capabilities") public ApiEnvelope<AssistantContracts.Capabilities> capabilities(){return ApiEnvelope.ok(assistant.capabilities());}
     @PostMapping("/conversations") public ApiEnvelope<AssistantContracts.ConversationView> create(@AuthenticationPrincipal UserPrincipal p,@RequestHeader("Idempotency-Key") String key,@Valid @RequestBody AssistantContracts.CreateConversationRequest r){return ApiEnvelope.ok(assistant.create(p.userId(),key,r));}
     @PostMapping("/conversations/{id}/messages") public ApiEnvelope<AssistantContracts.MessageResponse> message(@AuthenticationPrincipal UserPrincipal p,@PathVariable UUID id,@RequestHeader("Idempotency-Key") String key,@Valid @RequestBody AssistantContracts.MessageRequest r){return ApiEnvelope.ok(assistant.message(p.userId(),id,key,r));}
     @PostMapping("/action-proposals/{id}/confirm") public ApiEnvelope<AssistantContracts.ActionResult> confirm(@AuthenticationPrincipal UserPrincipal p,@PathVariable UUID id,@RequestHeader("Idempotency-Key") String key){return ApiEnvelope.ok(assistant.confirm(p.userId(),id,key));}

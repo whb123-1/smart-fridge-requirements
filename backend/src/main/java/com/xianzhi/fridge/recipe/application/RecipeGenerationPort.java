@@ -14,6 +14,12 @@ public interface RecipeGenerationPort {
                        List<String> tastes, List<String> cuisines, List<String> exclusions,
                        String goal, Integer calorieTarget, int count);
 
+    default Discovery discoverWithMaterials(String prompt, List<String> existingTitles, List<RecipeContracts.IngredientInput> inventory,
+                       List<String> tastes, List<String> cuisines, List<String> exclusions,
+                       String goal, Integer calorieTarget, int count, List<WebMaterial> materials) {
+        return discover(prompt, existingTitles, inventory, tastes, cuisines, exclusions, goal, calorieTarget, count);
+    }
+
     record Candidate(UUID id, String title, String summary, String cuisine, String taste, String goal,
                      int cookMinutes, List<String> ingredients, int inventoryMatches, int missingCount) { }
     record GeneratedRecipes(List<UUID> recipeIds, String rationale, String model, boolean fallback) { }
@@ -23,4 +29,5 @@ public interface RecipeGenerationPort {
                  BigDecimal servings, DraftNutrition nutrition, List<DraftIngredient> ingredients,
                  List<String> steps) { }
     record Discovery(List<Draft> recipes, String rationale, String model, boolean fallback) { }
+    record WebMaterial(String title, String summary, String url, String site) { }
 }

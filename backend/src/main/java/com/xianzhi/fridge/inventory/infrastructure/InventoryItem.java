@@ -52,5 +52,8 @@ public class InventoryItem {
     public void update(String name, FoodCategory category, BigDecimal lowStockQuantity, String defaultUnit) {
         this.displayName = name; this.category = category; this.lowStockQuantity = lowStockQuantity; this.defaultUnit = defaultUnit;
     }
+    public void update(String name, UUID catalogId, FoodCategory category, BigDecimal lowStockQuantity, String defaultUnit) {
+        this.displayName = name; this.catalogId = catalogId; this.category = category; this.lowStockQuantity = lowStockQuantity; this.defaultUnit = defaultUnit;
+    }
     public void softDelete(Instant at) { deletedAt = at; }
 }

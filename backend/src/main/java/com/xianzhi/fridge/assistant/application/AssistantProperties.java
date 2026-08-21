@@ -18,6 +18,10 @@ public class AssistantProperties {
     private String qdrantUrl="http://localhost:6333";
     private String qdrantCollection="xianzhi_recipes";
     private String qdrantApiKey;
+    private String tavilyApiKey;
+    private String tavilyBaseUrl="https://api.tavily.com";
+    private java.time.Duration tavilyTimeout=java.time.Duration.ofSeconds(12);
+    private int tavilyMaxResults=5;
     public boolean isExternalCallsEnabled(){return externalCallsEnabled;} public void setExternalCallsEnabled(boolean value){externalCallsEnabled=value;}
     public String getModelName(){return modelName;} public void setModelName(String value){modelName=value;}
     public boolean isVectorEnabled(){return vectorEnabled;} public void setVectorEnabled(boolean value){vectorEnabled=value;}
@@ -32,4 +36,8 @@ public class AssistantProperties {
     public String getQdrantUrl(){return qdrantUrl;} public void setQdrantUrl(String value){qdrantUrl=value;}
     public String getQdrantCollection(){return qdrantCollection;} public void setQdrantCollection(String value){qdrantCollection=value;}
     public String getQdrantApiKey(){return qdrantApiKey;}public void setQdrantApiKey(String value){qdrantApiKey=value;}
+    public String getTavilyApiKey(){return tavilyApiKey;}public void setTavilyApiKey(String value){tavilyApiKey=value;}
+    public String getTavilyBaseUrl(){return tavilyBaseUrl;}public void setTavilyBaseUrl(String value){tavilyBaseUrl=value;}
+    public java.time.Duration getTavilyTimeout(){return tavilyTimeout;}public void setTavilyTimeout(java.time.Duration value){tavilyTimeout=value;}
+    public int getTavilyMaxResults(){return tavilyMaxResults;}public void setTavilyMaxResults(int value){tavilyMaxResults=value;}
 }

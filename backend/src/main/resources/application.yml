@@ -114,6 +114,10 @@ app:
     qdrant-url: ${QDRANT_URL:http://localhost:6333}
     qdrant-collection: ${QDRANT_COLLECTION:xianzhi_recipes}
     qdrant-api-key: ${QDRANT_API_KEY:}
+    tavily-api-key: ${TAVILY_API_KEY:}
+    tavily-base-url: ${TAVILY_BASE_URL:https://api.tavily.com}
+    tavily-timeout: ${TAVILY_TIMEOUT:PT12S}
+    tavily-max-results: ${TAVILY_MAX_RESULTS:5}
 
 logging:
   structured:

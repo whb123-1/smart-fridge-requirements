@@ -106,6 +106,28 @@ class OpenAiRecipeGenerationAdapterTest {
     }
 
     @Test
+    void rejectsGeneratedRecipesThatIgnoreExplicitDishAndPrimaryIngredient() throws Exception {
+        AssistantProperties properties = new AssistantProperties();
+        properties.setExternalCallsEnabled(true);
+        properties.setBaseUrl("https://example.test/v1");
+        properties.setModelName("test-model");
+        ExternalProviderClient client = mock(ExternalProviderClient.class);
+        var unrelated = recipe("黑椒和牛牛排", "使用和牛牛肉煎制", "和牛牛肉", "香煎和牛牛肉");
+        var aligned = recipe("红焖猪肘", "猪肘慢焖至软烂", "猪肘", "小火焖至猪肘软烂");
+        var output = mapper.createObjectNode();
+        output.putArray("recipes").add(unrelated).add(aligned);
+        output.put("rationale", "按用户要求生成");
+        var response = mapper.createObjectNode();
+        response.putArray("choices").addObject().putObject("message").put("content", mapper.writeValueAsString(output));
+        when(client.postJson(any(), any(), any(), any(), any())).thenReturn(response);
+
+        var result = new OpenAiRecipeGenerationAdapter(properties, client, mapper).discover("红焖猪肘",
+                List.of(), List.of(), List.of(), List.of(), List.of(), null, null, 3);
+
+        assertThat(result.recipes()).extracting(RecipeGenerationPort.Draft::title).containsExactly("红焖猪肘");
+    }
+
+    @Test
     void discoveryReturnsNoInventedRecipesWhenExternalAiIsDisabled() {
         var result = new OpenAiRecipeGenerationAdapter(new AssistantProperties(), mock(ExternalProviderClient.class), mapper)
                 .discover("随便做一道", List.of(), List.of(), List.of(), List.of(), List.of(), null, null, 3);
@@ -113,8 +135,35 @@ class OpenAiRecipeGenerationAdapterTest {
         assertThat(result.recipes()).isEmpty();
     }
 
+    @Test
+    void explicitBraisedGooseRejectsBeefAndKeepsGooseConstraint() throws Exception {
+        AssistantProperties properties = new AssistantProperties();
+        properties.setExternalCallsEnabled(true);
+        properties.setBaseUrl("https://example.test/v1");
+        properties.setModelName("test-model");
+        ExternalProviderClient client = mock(ExternalProviderClient.class);
+        var output = mapper.createObjectNode();
+        output.putArray("recipes").add(recipe("红烧牛肉", "牛肉红烧", "牛肉", "将牛肉红烧入味"))
+                .add(recipe("红烧鹅", "鹅肉红烧至酥香", "鹅肉", "将鹅肉红烧并焖至软烂"));
+        var response = mapper.createObjectNode();
+        response.putArray("choices").addObject().putObject("message").put("content", mapper.writeValueAsString(output));
+        when(client.postJson(any(), any(), any(), any(), any())).thenReturn(response);
+        var result = new OpenAiRecipeGenerationAdapter(properties, client, mapper).discover("红烧鹅", List.of(), List.of(), List.of(), List.of(), List.of(), null, null, 3);
+        assertThat(result.recipes()).extracting(RecipeGenerationPort.Draft::title).containsExactly("红烧鹅");
+    }
+
     private static RecipeGenerationPort.Candidate candidate(UUID id) {
         return new RecipeGenerationPort.Candidate(id, "番茄炒蛋", "家常菜", "家常菜", "咸鲜", "均衡", 15,
                 List.of("番茄", "鸡蛋"), 1, 1);
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode recipe(String title, String summary, String ingredient, String step) {
+        var value = mapper.createObjectNode();
+        value.put("title", title).put("summary", summary).put("cookMinutes", 40).put("servings", 2);
+        value.putObject("nutrition").put("calories", 800).put("protein", 50).put("fat", 40).put("carbs", 30);
+        value.putArray("ingredients").addObject().put("name", ingredient).put("role", "PRIMARY")
+                .put("quantity", 500).put("unit", "g").put("scalingRule", "LINEAR");
+        value.putArray("steps").add("处理并腌制主料").add(step);
+        return value;
     }
 }

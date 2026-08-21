@@ -15,6 +15,7 @@ const props = defineProps({
   busyProposalId: { type: String, default: null },
   input: { type: String, default: '' },
   answering: { type: Boolean, default: false },
+  capabilities: { type: Object, default: null },
 })
 
 const emit = defineEmits(['update:open', 'update:input', 'send', 'confirm', 'dismiss'])
@@ -232,14 +233,19 @@ watch(manualOpen, () => nextTick(readPanelSize))
       </header>
       <template v-if="manualOpen">
         <section class="ai-manual" aria-label="AI 使用说明书">
-          <div class="ai-manual-cover"><span v-html="bookIcon"></span><div><small>鲜知指南 01</small><h2>AI 使用说明书</h2><p>把目标、对象和必要条件说清楚，助手会结合当前页面与已登录账号的数据处理。</p></div></div>
+          <div class="ai-manual-cover"><span v-html="bookIcon"></span><div><small>鲜知指南 01 · 功能清单</small><h2>AI 使用说明书</h2><p>助手读取当前账号的库存、期限、环境、菜谱计划和偏好；可回答问题，也可生成待确认操作。</p></div></div>
+          <p class="ai-capability-status" :class="{ enabled: capabilities?.webRecipeSearch }"><b>{{ capabilities?.webSearchStatus || '正在读取联网能力' }}</b><span>本地菜谱 {{ capabilities?.localRecipes ? '可用' : '不可用' }} · AI 生成 {{ capabilities?.aiGeneration ? '可用' : '未启用' }} · 食材同义归一 {{ capabilities?.foodNormalization ? '已启用' : '未启用' }}</span></p>
           <ol>
-            <li><b>查询与建议</b><span>可询问库存、保质期、环境状态、菜谱与采购信息。</span></li>
-            <li><b>明确描述</b><span>带上食材名、数量、分区或时间，结果会更准确。</span></li>
-            <li><b>操作需确认</b><span>添加、调整、删除和状态变更会先生成待确认操作。</span></li>
-            <li><b>数据有边界</b><span>回答基于当前账号记录；营养和期限结果用于日常参考。</span></li>
+            <li><b>查库存与保质期</b><span>查询现有食材、剩余数量、存放分区、低库存、临期与已过期项目；可按食材名或时间范围提问。</span><em>示例：番茄还剩多少？三天内哪些食材要先吃？</em></li>
+            <li><b>查冰箱环境</b><span>查询各分区温度、湿度、传感器状态与环境风险，并解释环境异常可能影响哪些库存。</span><em>示例：冷藏室温度正常吗？为什么鸡蛋期限变短了？</em></li>
+            <li><b>本地与联网找菜谱</b><span>先匹配现有菜谱库，结果不足时可使用 Tavily 检索公开网页；返回标题、摘要、原始链接、站点和检索时间。明确菜名、主料与做法优先于口味、菜系和热量等软偏好。</span><em>示例：联网找红烧鹅，主料必须是鹅肉并保留来源。</em></li>
+            <li><b>整理外部菜谱草稿</b><span>AI 可基于公开来源整理主料、用量、步骤、营养和风险提示；网页内容只作为不可信参考。缺少可验证来源、食材或做法时只展示搜索结果，不制作可入库草稿。</span><em>外部草稿必须由你勾选确认后才会加入菜谱库。</em></li>
+            <li><b>管理与规范化库存</b><span>可发起添加食材、调整数量、删除库存等操作。番茄/西红柿等已审核同义词会自动归到同一规范食材；每个批次的原始录入名、数量、单位、位置和期限仍分别保留。</span><em>低置信度或未审核别名不会自动合并。</em></li>
+            <li><b>管理采购清单</b><span>可发起添加采购项、更新已买或待买状态、删除、入库与导出清单，也能根据低库存给出补货建议。</span><em>示例：把 2 盒牛奶加入采购清单。</em></li>
+            <li><b>记录饮食与调整设置</b><span>可发起记录或删除一餐，更新口味、菜系、过敏、忌口和营养目标，也可调整冰箱分区设置。</span><em>示例：记录午餐番茄炒蛋；以后不要推荐花生。</em></li>
+            <li><b>确认后才会执行</b><span>页面跳转以外的新增、修改、删除和状态变更会先显示操作卡；确认后执行，取消则不改数据。操作卡 30 分钟后失效，库存变化后也需重新生成。</span></li>
           </ol>
-          <p class="ai-manual-note">涉及过敏、食品安全或医疗判断时，请以包装说明和专业意见为准。</p>
+          <p class="ai-manual-note"><b>数据与安全边界</b> 过敏原和明确忌口始终是硬约束；软偏好冲突会警告但不覆盖明确菜名。AI 生成菜谱、营养估算和动态期限用于日常参考；涉及过敏、食品安全或医疗判断时，请以包装说明和专业意见为准。</p>
         </section>
       </template>
       <template v-else>

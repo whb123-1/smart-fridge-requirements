@@ -14,15 +14,24 @@ import org.springframework.stereotype.Component;
 public class RecipePreferencePolicy {
     public boolean allows(RecipeStore.Row recipe, List<RecipeContracts.Component> ingredients,
                           PreferenceContracts.View preferences) {
+        if (!allowsSafety(ingredients, preferences)) return false;
+        return softWarnings(recipe, preferences).isEmpty();
+    }
+
+    public boolean allowsSafety(List<RecipeContracts.Component> ingredients, PreferenceContracts.View preferences) {
         List<String> exclusions = new ArrayList<>(preferences.allergies());
         exclusions.addAll(preferences.dislikes());
-        if (exclusions.stream().anyMatch(excluded -> ingredients.stream()
-                .anyMatch(ingredient -> similar(excluded, ingredient.name())))) return false;
+        return exclusions.stream().noneMatch(excluded -> ingredients.stream()
+                .anyMatch(ingredient -> similar(excluded, ingredient.name())));
+    }
 
+    public List<String> softWarnings(RecipeStore.Row recipe, PreferenceContracts.View preferences) {
+        List<String> warnings = new ArrayList<>();
         String searchable = String.join(" ", values(recipe.title(), recipe.summary(), recipe.taste(), recipe.cuisine(), recipe.goal()));
-        if (!preferences.tastes().isEmpty() && preferences.tastes().stream().noneMatch(value -> tasteAllows(value, recipe, searchable))) return false;
-        if (!preferences.cuisines().isEmpty() && preferences.cuisines().stream().noneMatch(value -> similar(value, searchable))) return false;
-        return goalAllows(recipe, preferences.dietaryGoal(), preferences.calorieTarget());
+        if (!preferences.tastes().isEmpty() && preferences.tastes().stream().noneMatch(value -> tasteAllows(value, recipe, searchable))) warnings.add("该菜谱与已设置的口味偏好可能冲突");
+        if (!preferences.cuisines().isEmpty() && preferences.cuisines().stream().noneMatch(value -> similar(value, searchable))) warnings.add("该菜谱不属于已设置的偏好菜系");
+        if (!goalAllows(recipe, preferences.dietaryGoal(), preferences.calorieTarget())) warnings.add("该菜谱与当前饮食或热量目标可能冲突");
+        return warnings;
     }
 
     private static boolean goalAllows(RecipeStore.Row recipe, String goal, Integer calorieTarget) {

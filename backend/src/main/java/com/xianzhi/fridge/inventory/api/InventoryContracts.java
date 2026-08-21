@@ -91,11 +91,12 @@ public final class InventoryContracts {
     public record BatchView(
             UUID id, UUID zoneId, Instant storedAt, Instant openedAt,
             BigDecimal initialQuantity, BigDecimal remainingQuantity, String unit,
-            BatchStatus status, Instant remindAt, AssessmentView assessment) { }
+            BatchStatus status, Instant remindAt, AssessmentView assessment, String inputName) { }
 
     public record ItemView(
             UUID id, UUID fridgeId, UUID catalogId, String name, FoodCategory category,
-            BigDecimal lowStockQuantity, String defaultUnit, boolean lowStock, List<BatchView> batches) { }
+            BigDecimal lowStockQuantity, String defaultUnit, boolean lowStock, List<BatchView> batches,
+            String canonicalName, List<String> originalNames) { }
 
     public record ExpiryView(UUID itemId, String itemName, UUID batchId, UUID zoneId,
                              BigDecimal remainingQuantity, String unit, BatchStatus batchStatus,

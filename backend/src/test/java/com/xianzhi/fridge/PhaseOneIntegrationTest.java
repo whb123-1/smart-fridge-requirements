@@ -20,6 +20,7 @@ import com.xianzhi.fridge.recipe.application.RecipeImportProcessor;
 import com.xianzhi.fridge.shared.application.OutboxProcessor;
 import com.xianzhi.fridge.shared.web.ApiException;
 import jakarta.servlet.http.Cookie;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -318,6 +319,66 @@ class PhaseOneIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM inventory_transaction WHERE batch_id = UUID_TO_BIN(?)",
                 Integer.class, batchId)).isEqualTo(2);
+    }
+
+    @Test
+    void approvedFoodAliasesShareOneInventoryItemAndKeepSeparateBatches() throws Exception {
+        Session owner = register("food-alias-" + UUID.randomUUID() + "@example.com");
+        FridgeFixture fridge = initialize(owner);
+        String firstBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "番茄", "defaultUnit", "g",
+                "batches", List.of(Map.of("zoneId", fridge.firstZoneId(), "quantity", 300, "unit", "g"))));
+        String secondBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", " 西红柿 ", "defaultUnit", "g",
+                "batches", List.of(Map.of("zoneId", fridge.secondZoneId(), "quantity", 500, "unit", "g"))));
+
+        MvcResult first = mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isOk()).andReturn();
+        String itemId = data(first).path("id").asText();
+        mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(secondBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(itemId))
+                .andExpect(jsonPath("$.data.canonicalName").value("番茄"))
+                .andExpect(jsonPath("$.data.batches.length()").value(2))
+                .andExpect(jsonPath("$.data.originalNames").value(org.hamcrest.Matchers.containsInAnyOrder("番茄", "西红柿")));
+
+        mvc.perform(get("/api/v1/inventory/items").param("fridgeId", fridge.id())
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].batches.length()").value(2))
+                .andExpect(jsonPath("$.data[0].batches[*].inputName").value(org.hamcrest.Matchers.containsInAnyOrder("番茄", "西红柿")));
+
+        String customBody = objectMapper.writeValueAsString(Map.of(
+                "fridgeId", fridge.id(), "name", "家庭小红果", "defaultUnit", "g",
+                "batches", List.of(Map.of("zoneId", fridge.firstZoneId(), "quantity", 200, "unit", "g"))));
+        MvcResult custom = mvc.perform(post("/api/v1/inventory/items")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(customBody))
+                .andExpect(status().isOk()).andReturn();
+        String customItemId = data(custom).path("id").asText();
+        String customBatchId = data(custom).path("batches").path(0).path("id").asText();
+
+        mvc.perform(patch("/api/v1/inventory/items/{id}", customItemId)
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"西红柿\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(itemId))
+                .andExpect(jsonPath("$.data.canonicalName").value("番茄"))
+                .andExpect(jsonPath("$.data.batches.length()").value(3))
+                .andExpect(jsonPath("$.data.originalNames").value(org.hamcrest.Matchers.containsInAnyOrder("番茄", "西红柿", "家庭小红果")));
+
+        mvc.perform(get("/api/v1/inventory/items").param("fridgeId", fridge.id()).param("query", "西红柿")
+                        .header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(itemId));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inventory_transaction WHERE batch_id=UUID_TO_BIN(?)",
+                Integer.class, customBatchId)).isEqualTo(1);
     }
 
     @Test
@@ -813,6 +874,35 @@ class PhaseOneIntegrationTest {
         mvc.perform(get("/api/v1/fridges/{fridgeId}/recipe-plans", fridge.id())
                         .header("Authorization", bearer(owner)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    void generatedRecipePublishReplaysAfterTheDraftWasAlreadyApproved() throws Exception {
+        Session owner = register("recipe-publish-" + UUID.randomUUID() + "@example.com");
+        UUID recipeId = UUID.randomUUID();
+        UUID ownerId = userId(owner.username());
+        String fingerprint = recipeId.toString().replace("-", "").repeat(2);
+        jdbc.update("insert into recipe(id,source_version,origin,created_by,title,summary,cuisine,taste,goal,cook_minutes,servings,calories_total,protein_total,fat_total,carbs_total,nutrition_source,normalized_fingerprint,review_status,attribution_text,created_at,updated_at) values(UUID_TO_BIN(?),?,'AI_GENERATED',UUID_TO_BIN(?),?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+                recipeId.toString(), "publish-test-model", ownerId.toString(), "幂等发布测试菜谱", "用于验证 AI 草稿发布重试", "家常菜", "咸鲜", "均衡", 20,
+                BigDecimal.valueOf(2), BigDecimal.valueOf(500), BigDecimal.valueOf(30), BigDecimal.valueOf(18), BigDecimal.valueOf(45),
+                "AI_GENERATED", fingerprint, "AI 生成测试草稿");
+        jdbc.update("insert into recipe_component(id,recipe_id,name,role,quantity,unit,scaling_rule,sort_order) values(UUID_TO_BIN(?),UUID_TO_BIN(?),'鸡肉','PRIMARY',300,'g','LINEAR',1)",
+                UUID.randomUUID().toString(), recipeId.toString());
+        jdbc.update("insert into recipe_step(id,recipe_id,step_number,instruction_text) values(UUID_TO_BIN(?),UUID_TO_BIN(?),1,'鸡肉加热至完全熟透')",
+                UUID.randomUUID().toString(), recipeId.toString());
+
+        String key = UUID.randomUUID().toString();
+        String body = "{\"recipeIds\":[\"" + recipeId + "\"]}";
+        mvc.perform(post("/api/v1/recipes/generated/publish")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(recipeId.toString()));
+        mvc.perform(post("/api/v1/recipes/generated/publish")
+                        .header("Authorization", bearer(owner)).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(recipeId.toString()));
+        assertThat(jdbc.queryForObject("select review_status from recipe where id=UUID_TO_BIN(?)", String.class, recipeId.toString()))
+                .isEqualTo("APPROVED");
     }
 
     private String demoteAfter(CountDownLatch start, UUID actor, UUID target) throws Exception {

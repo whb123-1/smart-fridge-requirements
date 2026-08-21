@@ -19,4 +19,7 @@ public final class AssistantContracts {
     public record ActionResult(UUID proposalId,String status,JsonNode result) { }
     public record InsightView(UUID id,String type,String title,String body,Instant createdAt) { }
     public record Briefing(List<InsightView> insights,int pendingActionCount,int unreadNotificationCount,boolean fallback) { }
+    public record Capabilities(boolean localRecipes,boolean webRecipeSearch,boolean aiGeneration,
+                               boolean recipeWriteRequiresConfirmation,boolean foodNormalization,
+                               List<String> sourceModes,List<String> preferenceModes,String webSearchStatus) { }
 }

@@ -18,8 +18,31 @@ public final class RecipeContracts {
                              List<String> steps,List<DetailedStep> detailedSteps,List<String> utensils,String nutritionSource,
                              boolean bookmarked,String source,String sourceVersion,String attribution,
                              String imageUrl,String imageSourceUrl,String imageAttribution,
-                             String availability,List<String> missing,List<String> validationWarnings) { }
-    public record GenerateRequest(UUID fridgeId,@Size(max=500) String prompt,List<@Valid IngredientInput> inventory,@Min(1) @Max(3) Integer count) { }
+                             String availability,List<String> missing,List<String> validationWarnings,List<WebSource> webSources) {
+        public RecipeView(UUID id,String name,String description,String cuisine,String taste,String goal,int cookMinutes,
+                          BigDecimal servings,Nutrition total,Nutrition perServing,List<Component> ingredients,
+                          List<String> steps,List<DetailedStep> detailedSteps,List<String> utensils,String nutritionSource,
+                          boolean bookmarked,String source,String sourceVersion,String attribution,
+                          String imageUrl,String imageSourceUrl,String imageAttribution,
+                          String availability,List<String> missing,List<String> validationWarnings) {
+            this(id,name,description,cuisine,taste,goal,cookMinutes,servings,total,perServing,ingredients,steps,detailedSteps,utensils,nutritionSource,
+                    bookmarked,source,sourceVersion,attribution,imageUrl,imageSourceUrl,imageAttribution,availability,missing,validationWarnings,List.of());
+        }
+    }
+    public record GenerateRequest(UUID fridgeId,@Size(max=500) String prompt,List<@Valid IngredientInput> inventory,
+                                  List<@NotBlank @Size(max=120) String> preferredIngredients,
+                                  @Pattern(regexp="ALL|SELECTED",flags=Pattern.Flag.CASE_INSENSITIVE) String matchMode,
+                                  @Min(1) @Max(6) Integer count,
+                                  @Pattern(regexp="LOCAL|WEB|HYBRID",flags=Pattern.Flag.CASE_INSENSITIVE) String sourceMode,
+                                  @Pattern(regexp="PREFERENCE_FIRST|PROMPT_FIRST",flags=Pattern.Flag.CASE_INSENSITIVE) String preferenceMode) {
+        public GenerateRequest(UUID fridgeId,String prompt,List<IngredientInput> inventory,List<String> preferredIngredients,String matchMode,Integer count) {
+            this(fridgeId,prompt,inventory,preferredIngredients,matchMode,count,null,null);
+        }
+    }
+    public record WebSource(String title,String summary,String url,String site,Instant retrievedAt,String sourceVersion) { }
+    public record WebSearchResponse(List<RecipeView> recipes,List<WebSource> sources,List<String> warnings,
+                                    String model,boolean fallback,String rationale,String sourceMode,String preferenceMode,
+                                    List<UUID> draftRecipeIds) { }
     public record GeneratedRecipeSelection(@NotEmpty @Size(max=3) List<@NotNull UUID> recipeIds) { }
     public record IngredientInput(UUID batchId,@NotBlank String name,BigDecimal quantity,String unit) { }
     public record MatchRequest(@NotEmpty @Size(max=4) List<@Valid IngredientInput> ingredients) { }

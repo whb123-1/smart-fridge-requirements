@@ -45,7 +45,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -56,6 +59,7 @@ public class InventoryService {
     private final FridgeRepository fridges;
     private final FridgeZoneRepository zones;
     private final FoodCatalogRepository catalogs;
+    private final FoodNormalizationService normalization;
     private final FoodWeightEstimateRepository weights;
     private final FoodStorageProfileRepository profiles;
     private final InventoryItemRepository items;
@@ -76,11 +80,11 @@ public class InventoryService {
                             InventoryTransactionRepository transactions, ShelfLifeAssessmentRepository assessments,
                             IdempotencyRecordRepository idempotency, OutboxEventRepository outbox,
                             ObjectMapper mapper, AuditService audit, Clock clock, JdbcTemplate jdbc,
-                            ShelfLifeEstimator shelfLifeEstimator) {
+                            FoodNormalizationService normalization, ShelfLifeEstimator shelfLifeEstimator) {
         this.fridges = fridges; this.zones = zones; this.catalogs = catalogs; this.weights = weights; this.profiles = profiles;
         this.items = items; this.batches = batches; this.transactions = transactions; this.assessments = assessments;
         this.idempotency = idempotency; this.outbox = outbox; this.mapper = mapper; this.audit = audit; this.clock = clock; this.jdbc = jdbc;
-        this.shelfLifeEstimator = shelfLifeEstimator;
+        this.normalization = normalization; this.shelfLifeEstimator = shelfLifeEstimator;
     }
 
     @Transactional(readOnly = true)
@@ -89,10 +93,15 @@ public class InventoryService {
         List<InventoryItem> owned = fridgeId == null
                 ? items.findByUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId)
                 : items.findByUserIdAndFridgeIdAndDeletedAtIsNullOrderByCreatedAtDesc(userId, ownedFridge(userId, fridgeId).getId());
-        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        return owned.stream().filter(item -> category == null || item.getCategory() == category)
-                .filter(item -> normalizedQuery.isEmpty() || item.getDisplayName().toLowerCase(Locale.ROOT).contains(normalizedQuery))
-                .map(item -> toItemView(item, zoneId, status)).toList();
+        String normalizedQuery = normalization.normalize(query);
+        FoodCatalog queryCatalog = normalizedQuery.isEmpty() ? null : normalization.resolve(query);
+        Map<String, List<InventoryItem>> grouped = owned.stream()
+                .filter(item -> category == null || item.getCategory() == category)
+                .filter(item -> normalizedQuery.isEmpty() || normalization.normalize(item.getDisplayName()).contains(normalizedQuery)
+                        || (queryCatalog != null && queryCatalog.getId().equals(item.getCatalogId()))
+                        || (item.getCatalogId() != null && catalogs.findById(item.getCatalogId()).map(c -> normalization.normalize(c.getCanonicalName()).contains(normalizedQuery)).orElse(false)))
+                .collect(Collectors.groupingBy(item -> item.getCatalogId() == null ? "item:" + item.getId() : "catalog:" + item.getFridgeId() + ":" + item.getCatalogId(), LinkedHashMap::new, Collectors.toList()));
+        return grouped.values().stream().map(group -> toItemView(group, zoneId, status)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -139,12 +148,16 @@ public class InventoryService {
         FoodCatalog catalog = findCatalog(request.name());
         FoodCategory category = request.category() != null ? request.category() : catalog == null ? FoodCategory.OTHER : catalog.getCategory();
         String unit = request.defaultUnit().trim();
-        InventoryItem item = items.save(new InventoryItem(UuidV7.next(), userId, fridge.getId(), catalog == null ? null : catalog.getId(),
-                request.name().trim(), category, request.lowStockQuantity(), unit));
+        InventoryItem item = catalog == null ? null : items.findFirstByUserIdAndFridgeIdAndCatalogIdAndDeletedAtIsNull(userId, fridge.getId(), catalog.getId()).orElse(null);
+        if (item == null) {
+            String displayName = catalog == null ? request.name().trim() : catalog.getCanonicalName();
+            item = items.save(new InventoryItem(UuidV7.next(), userId, fridge.getId(), catalog == null ? null : catalog.getId(),
+                    displayName, category, request.lowStockQuantity(), unit));
+        }
         List<InventoryBatch> created = new ArrayList<>();
         for (InventoryContracts.BatchRequest batchRequest : request.batches()) {
             validateZone(userId, fridge.getId(), batchRequest.zoneId());
-            InventoryBatch batch = createBatch(item, batchRequest, catalog, clock.instant());
+            InventoryBatch batch = createBatch(item, batchRequest, catalog, clock.instant(), request.name().trim());
             created.add(batches.save(batch));
             writeTransaction(userId, batch, TransactionType.IN, BigDecimal.ZERO, batch.getRemainingQuantity(), batch.getRemainingQuantity(),
                     "INVENTORY_CREATE", item.getId(), key);
@@ -169,7 +182,29 @@ public class InventoryService {
         FoodCategory category = request.category() == null ? item.getCategory() : request.category();
         BigDecimal threshold = request.lowStockQuantity() == null ? item.getLowStockQuantity() : request.lowStockQuantity();
         String unit = request.defaultUnit() == null || request.defaultUnit().isBlank() ? item.getDefaultUnit() : request.defaultUnit().trim();
-        item.update(name, category, threshold, unit);
+        FoodCatalog resolvedCatalog = normalization.resolve(name);
+        if (resolvedCatalog != null) {
+            name = resolvedCatalog.getCanonicalName();
+            InventoryItem target = items.findFirstByUserIdAndFridgeIdAndCatalogIdAndDeletedAtIsNull(
+                    userId, item.getFridgeId(), resolvedCatalog.getId()).orElse(null);
+            if (target != null && !target.getId().equals(item.getId())) {
+                List<InventoryBatch> moved = batches.findByItemIdOrderByStoredAtDesc(item.getId());
+                moved.forEach(batch -> batch.moveToItem(target.getId()));
+                batches.saveAll(moved);
+                FoodCategory targetCategory = request.category() == null ? target.getCategory() : request.category();
+                BigDecimal targetThreshold = request.lowStockQuantity() == null ? target.getLowStockQuantity() : request.lowStockQuantity();
+                String targetUnit = request.defaultUnit() == null || request.defaultUnit().isBlank() ? target.getDefaultUnit() : request.defaultUnit().trim();
+                target.update(resolvedCatalog.getCanonicalName(), resolvedCatalog.getId(), targetCategory, targetThreshold, targetUnit);
+                items.save(target);
+                item.softDelete(clock.instant());
+                items.save(item);
+                InventoryContracts.ItemView response = toItemView(target, null, null);
+                saveIdempotency(userId, key, hash, "PATCH", path, response);
+                audit.record(userId, "INVENTORY_CANONICAL_MERGE");
+                return response;
+            }
+        }
+        item.update(name, resolvedCatalog == null ? item.getCatalogId() : resolvedCatalog.getId(), category, threshold, unit);
         InventoryContracts.ItemView response = toItemView(items.save(item), null, null);
         saveIdempotency(userId, key, hash, "PATCH", path, response);
         audit.record(userId, "INVENTORY_UPDATED");
@@ -202,7 +237,7 @@ public class InventoryService {
         InventoryItem item = ownedItem(userId, itemId);
         validateZone(userId, item.getFridgeId(), request.zoneId());
         FoodCatalog catalog = item.getCatalogId() == null ? null : catalogs.findById(item.getCatalogId()).orElse(null);
-        InventoryBatch batch = batches.save(createBatch(item, request, catalog, clock.instant()));
+        InventoryBatch batch = batches.save(createBatch(item, request, catalog, clock.instant(), item.getDisplayName()));
         writeTransaction(userId, batch, TransactionType.IN, BigDecimal.ZERO, batch.getRemainingQuantity(), batch.getRemainingQuantity(),
                 "INVENTORY_CREATE", item.getId(), key);
         recalculate(batch, item, catalog);
@@ -332,10 +367,10 @@ public class InventoryService {
                 weight.getId(), weight.getCatalogId(), weight.getLabel(), weight.getReferenceGrams(), weight.getUnit(), weight.getSource())).toList();
     }
 
-    private InventoryBatch createBatch(InventoryItem item, InventoryContracts.BatchRequest request, FoodCatalog catalog, Instant now) {
+    private InventoryBatch createBatch(InventoryItem item, InventoryContracts.BatchRequest request, FoodCatalog catalog, Instant now, String inputName) {
         Instant storedAt = request.storedAt() == null ? now : request.storedAt();
         if (request.quantity().signum() < 0) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Quantity cannot be negative");
-        return new InventoryBatch(UuidV7.next(), item.getId(), request.zoneId(), storedAt, request.openedAt(), null,
+        return new InventoryBatch(UuidV7.next(), item.getId(), inputName, request.zoneId(), storedAt, request.openedAt(), null,
                 null, request.quantity(), request.unit().trim(), request.remindAt());
     }
 
@@ -363,21 +398,31 @@ public class InventoryService {
     }
 
     private InventoryContracts.ItemView toItemView(InventoryItem item, UUID zoneId, String status) {
-        List<InventoryContracts.BatchView> itemBatches = batches.findByItemIdOrderByStoredAtDesc(item.getId()).stream()
+        return toItemView(List.of(item), zoneId, status);
+    }
+
+    private InventoryContracts.ItemView toItemView(List<InventoryItem> source, UUID zoneId, String status) {
+        InventoryItem item = source.getFirst();
+        List<UUID> ids = source.stream().map(InventoryItem::getId).toList();
+        List<InventoryContracts.BatchView> itemBatches = batches.findByItemIdInOrderByStoredAtDesc(ids).stream()
                 .filter(batch -> zoneId == null || zoneId.equals(batch.getZoneId()))
                 .filter(batch -> status == null || batch.getStatus().name().equalsIgnoreCase(status))
                 .map(this::toBatchView).toList();
         BigDecimal total = itemBatches.stream().filter(batch -> batch.status() == BatchStatus.ACTIVE && item.getDefaultUnit().equals(batch.unit()))
                 .map(InventoryContracts.BatchView::remainingQuantity).reduce(BigDecimal.ZERO, BigDecimal::add);
         boolean low = item.getLowStockQuantity() != null && total.compareTo(item.getLowStockQuantity()) <= 0;
-        return new InventoryContracts.ItemView(item.getId(), item.getFridgeId(), item.getCatalogId(), item.getDisplayName(), item.getCategory(),
-                item.getLowStockQuantity(), item.getDefaultUnit(), low, itemBatches);
+        String canonical = item.getCatalogId() == null ? item.getDisplayName() : catalogs.findById(item.getCatalogId()).map(FoodCatalog::getCanonicalName).orElse(item.getDisplayName());
+        List<String> originals = new ArrayList<>(source.stream().map(InventoryItem::getDisplayName).filter(v -> v != null && !v.isBlank()).toList());
+        itemBatches.stream().map(InventoryContracts.BatchView::inputName).filter(v -> v != null && !v.isBlank()).forEach(originals::add);
+        originals = new ArrayList<>(new LinkedHashSet<>(originals));
+        return new InventoryContracts.ItemView(item.getId(), item.getFridgeId(), item.getCatalogId(), canonical, item.getCategory(),
+                item.getLowStockQuantity(), item.getDefaultUnit(), low, itemBatches, canonical, originals);
     }
 
     private InventoryContracts.BatchView toBatchView(InventoryBatch batch) {
         return new InventoryContracts.BatchView(batch.getId(), batch.getZoneId(), batch.getStoredAt(), batch.getOpenedAt(),
                 batch.getInitialQuantity(), batch.getRemainingQuantity(), batch.getUnit(), batch.getStatus(), batch.getRemindAt(),
-                assessments.findFirstByBatchIdOrderByCalculatedAtDesc(batch.getId()).map(this::toAssessment).orElse(null));
+                assessments.findFirstByBatchIdOrderByCalculatedAtDesc(batch.getId()).map(this::toAssessment).orElse(null), batch.getInputName());
     }
 
     private InventoryContracts.AssessmentView toAssessment(ShelfLifeAssessment assessment) {
@@ -407,9 +452,7 @@ public class InventoryService {
     }
 
     private FoodCatalog findCatalog(String name) {
-        String normalized = name.trim().toLowerCase(Locale.ROOT);
-        return catalogs.findAllByOrderByCanonicalNameAsc().stream().filter(catalog -> catalog.getCanonicalName().toLowerCase(Locale.ROOT).equals(normalized)
-                || (catalog.getAliases() != null && List.of(catalog.getAliases().toLowerCase(Locale.ROOT).split(",")).stream().map(String::trim).anyMatch(normalized::equals))).findFirst().orElse(null);
+        return normalization.resolve(name);
     }
 
     private void writeTransaction(UUID userId, InventoryBatch batch, TransactionType type, BigDecimal before, BigDecimal after,

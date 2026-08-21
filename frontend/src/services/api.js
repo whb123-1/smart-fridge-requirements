@@ -127,6 +127,7 @@ export const api = {
   listRecipes: filters => request(`/api/v1/recipes${queryString(filters || {})}`),
   getRecipe: id => request(`/api/v1/recipes/${id}`),
   generateRecipeBatch: payload => write('/api/v1/recipes/generate', 'POST', payload),
+  searchWebRecipes: payload => write('/api/v1/recipes/search-web', 'POST', payload),
   recommendRecipeBatch: payload => write('/api/v1/recipes/recommend', 'POST', payload),
   publishGeneratedRecipes: recipeIds => write('/api/v1/recipes/generated/publish', 'POST', { recipeIds }, true),
   discardGeneratedRecipes: recipeIds => write('/api/v1/recipes/generated/discard', 'POST', { recipeIds }, true),
@@ -156,6 +157,7 @@ export const api = {
   getDietAnalytics: date => request(`/api/v1/analytics/diet${queryString({ date })}`),
 
   getAssistantBriefing: () => request('/api/v1/assistant/briefing'),
+  getAssistantCapabilities: () => request('/api/v1/assistant/capabilities'),
   createAssistantConversation: title => write('/api/v1/assistant/conversations', 'POST', { title }, true),
   sendAssistantMessage: (conversationId, payload) => write(`/api/v1/assistant/conversations/${conversationId}/messages`, 'POST', payload, true),
   confirmAssistantProposal: id => write(`/api/v1/assistant/action-proposals/${id}/confirm`, 'POST', undefined, true),

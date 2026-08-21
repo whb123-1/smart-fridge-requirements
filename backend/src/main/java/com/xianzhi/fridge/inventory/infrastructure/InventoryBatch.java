@@ -21,6 +21,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 public class InventoryBatch {
     @Id @JdbcTypeCode(Types.BINARY) private UUID id;
     @JdbcTypeCode(Types.BINARY) @Column(name = "item_id", nullable = false) private UUID itemId;
+    @Column(name = "input_name", length = 120) private String inputName;
     @JdbcTypeCode(Types.BINARY) @Column(name = "zone_id") private UUID zoneId;
     @Column(name = "stored_at", nullable = false) private Instant storedAt;
     @Column(name = "opened_at") private Instant openedAt;
@@ -37,7 +38,12 @@ public class InventoryBatch {
     protected InventoryBatch() { }
     public InventoryBatch(UUID id, UUID itemId, UUID zoneId, Instant storedAt, Instant openedAt,
                           Instant packageExpiresAt, Integer shelfLifeDays, BigDecimal quantity, String unit, Instant remindAt) {
+        this(id, itemId, null, zoneId, storedAt, openedAt, packageExpiresAt, shelfLifeDays, quantity, unit, remindAt);
+    }
+    public InventoryBatch(UUID id, UUID itemId, String inputName, UUID zoneId, Instant storedAt, Instant openedAt,
+                          Instant packageExpiresAt, Integer shelfLifeDays, BigDecimal quantity, String unit, Instant remindAt) {
         this.id = id; this.itemId = itemId; this.zoneId = zoneId; this.storedAt = storedAt;
+        this.inputName = inputName;
         this.openedAt = openedAt; this.packageExpiresAt = packageExpiresAt; this.shelfLifeDays = shelfLifeDays;
         this.initialQuantity = quantity; this.remainingQuantity = quantity; this.unit = unit;
         this.status = quantity.signum() == 0 ? BatchStatus.DEPLETED : BatchStatus.ACTIVE; this.remindAt = remindAt;
@@ -46,6 +52,7 @@ public class InventoryBatch {
     @PreUpdate void onUpdate() { updatedAt = Instant.now(); }
     public UUID getId() { return id; }
     public UUID getItemId() { return itemId; }
+    public String getInputName() { return inputName; }
     public UUID getZoneId() { return zoneId; }
     public Instant getStoredAt() { return storedAt; }
     public Instant getOpenedAt() { return openedAt; }
@@ -57,6 +64,7 @@ public class InventoryBatch {
     public BatchStatus getStatus() { return status; }
     public Instant getRemindAt() { return remindAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public void moveToItem(UUID targetItemId) { this.itemId = targetItemId; }
     public void updateSchedule(UUID zoneId, Instant openedAt, Instant packageExpiresAt, Integer shelfLifeDays, Instant remindAt) {
         this.zoneId = zoneId; this.openedAt = openedAt; this.packageExpiresAt = packageExpiresAt; this.shelfLifeDays = shelfLifeDays; this.remindAt = remindAt;
     }

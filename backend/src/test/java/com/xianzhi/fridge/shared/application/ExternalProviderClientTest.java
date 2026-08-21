@@ -116,4 +116,22 @@ class ExternalProviderClientTest {
                 .hasMessage("circuit-provider circuit is open");
         server.verify(15, postRequestedFor(urlEqualTo("/circuit")));
     }
+
+    @Test
+    void strictJsonCallRejectsUnexpectedContentType() {
+        server.stubFor(post("/html").willReturn(ok("<html>not json</html>").withHeader("Content-Type", "text/html")));
+        assertThatThrownBy(() -> client.postJsonLimited("strict-content", server.baseUrl() + "/html", "",
+                mapper.createObjectNode(), Duration.ofSeconds(1), 1024))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("non-JSON");
+    }
+
+    @Test
+    void strictJsonCallRejectsOversizedResponseBeforeParsing() {
+        server.stubFor(post("/large").willReturn(okJson("{\"value\":\"" + "x".repeat(2048) + "\"}")));
+        assertThatThrownBy(() -> client.postJsonLimited("strict-size", server.baseUrl() + "/large", "",
+                mapper.createObjectNode(), Duration.ofSeconds(1), 512))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("size limit");
+    }
 }

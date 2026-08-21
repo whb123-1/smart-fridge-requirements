@@ -10,4 +10,5 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
     List<InventoryItem> findByUserIdAndDeletedAtIsNullOrderByCreatedAtDesc(UUID userId);
     Optional<InventoryItem> findByIdAndUserIdAndDeletedAtIsNull(UUID id, UUID userId);
     Optional<InventoryItem> findByIdAndUserId(UUID id, UUID userId);
+    Optional<InventoryItem> findFirstByUserIdAndFridgeIdAndCatalogIdAndDeletedAtIsNull(UUID userId, UUID fridgeId, UUID catalogId);
 }

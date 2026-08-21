@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AssistantService {
     private static final Set<String> CLIENT_ACTIONS=Set.of(
             "NAVIGATE","ADD_INVENTORY","ADJUST_INVENTORY","DELETE_INVENTORY",
-            "FIND_RECIPES","BOOKMARK_RECIPE","START_COOKING",
+            "FIND_RECIPES","SEARCH_WEB_RECIPES","IMPORT_RECIPE_FROM_WEB","BOOKMARK_RECIPE","START_COOKING",
             "RECORD_MEAL","DELETE_MEAL","ADD_SHOPPING","UPDATE_SHOPPING_STATUS",
             "DELETE_SHOPPING","STORE_SHOPPING","EXPORT_SHOPPING","UPDATE_PREFERENCES",
             "UPDATE_ZONE","MARK_NOTIFICATION_READ");
@@ -40,6 +40,7 @@ public class AssistantService {
         this.idempotency=idempotency;this.properties=properties;this.generation=generation;this.mapper=mapper;this.clock=clock;}
 
     public AssistantContracts.Briefing briefing(UUID userId){return new AssistantContracts.Briefing(store.insights(userId),store.pending(userId),store.unreadNotifications(userId),!properties.isExternalCallsEnabled());}
+    public AssistantContracts.Capabilities capabilities(){boolean ai=properties.isExternalCallsEnabled()&&text(properties.getBaseUrl())&&text(properties.getApiKey())&&text(properties.getModelName());boolean web=properties.isExternalCallsEnabled()&&text(properties.getTavilyApiKey())&&text(properties.getTavilyBaseUrl());return new AssistantContracts.Capabilities(true,web,ai,true,true,List.of("LOCAL","WEB","HYBRID"),List.of("PREFERENCE_FIRST","PROMPT_FIRST"),web?"联网搜索可用":"联网搜索未启用");}
 
     @Transactional public AssistantContracts.ConversationView create(UUID userId,String key,AssistantContracts.CreateConversationRequest request){
         String path="/api/v1/assistant/conversations";var replay=idempotency.replay(userId,key,"POST",path,request,AssistantContracts.ConversationView.class);if(replay!=null)return replay;
@@ -90,4 +91,5 @@ public class AssistantService {
     private AssistantStore.ProposalRow owned(UUID userId,UUID id){var row=store.proposalRow(id,userId);if(row==null)throw new ApiException(HttpStatus.NOT_FOUND,"ACTION_PROPOSAL_NOT_FOUND","Action proposal not found");return row;}
     private String json(Object value){try{return mapper.writeValueAsString(value);}catch(JsonProcessingException e){throw new IllegalStateException(e);}}
     private JsonNode read(String value){try{return mapper.readTree(value);}catch(JsonProcessingException e){throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"AI_OUTPUT_INVALID","Stored action proposal is invalid");}}
+    private static boolean text(String value){return value!=null&&!value.isBlank();}
 }

@@ -46,7 +46,9 @@ public class OpenAiAssistantGenerationAdapter implements AssistantGenerationPort
             可用命令与参数：
             NAVIGATE {page}，page 只能为 home/inventory/expiry/recipes/synthesis/cooking/diet/shopping/settings/environment；
             ADD_INVENTORY {items:[{name,quantity,unit,category,zoneName}]}，一次可加入 1 至 20 种食材，必须把用户同一条消息中明确给出的全部食材放进 items；兼容单项参数 {name,quantity,unit,category,zoneName}。保质期始终由系统全局推算，不得要求或生成 shelfLifeDays；ADJUST_INVENTORY {itemId或name,quantity,unit}；DELETE_INVENTORY {itemId或name}；
-            FIND_RECIPES {description,count}，用于按用户描述搜索基础菜谱、结合库存与偏好生成候选；BOOKMARK_RECIPE {recipeId或name,bookmarked}；START_COOKING {recipeId或name}；
+            FIND_RECIPES {description,count,sourceMode,preferenceMode}，sourceMode 为 LOCAL/WEB/HYBRID；用户明确菜名或主料时 preferenceMode 使用 PROMPT_FIRST；
+            SEARCH_WEB_RECIPES {description,count,preferenceMode}，用于联网搜索并返回公开来源；IMPORT_RECIPE_FROM_WEB {description,count,preferenceMode}，只准备带来源的草稿，必须由用户确认后才能入库；
+            BOOKMARK_RECIPE {recipeId或name,bookmarked}；START_COOKING {recipeId或name}；
             RECORD_MEAL {name,mealType,amount,unit}；DELETE_MEAL {mealId或name}；
             ADD_SHOPPING {name,quantity,unit,category,note}；UPDATE_SHOPPING_STATUS {itemId或name,status}；DELETE_SHOPPING {itemId或name}；STORE_SHOPPING {itemId或name}；EXPORT_SHOPPING {}；
             UPDATE_PREFERENCES {tastes,cuisines,allergies,dislikes,dietaryGoal,calorieTarget,temperatureUnit}，只放用户明确要求修改的字段；UPDATE_ZONE {zoneId或zoneName,name,targetTemperatureC,targetHumidityPct}；MARK_NOTIFICATION_READ {notificationId或title}。

@@ -31,6 +31,15 @@ class RecipePreferencePolicyTest {
         assertThat(policy.allows(oily, List.of(component("鸡肉")), preference)).isFalse();
     }
 
+    @Test
+    void promptFirstCanWarnAboutSoftPreferencesButStillBlocksSafetyConflicts() {
+        RecipeStore.Row goose = row("红烧鹅", "家常菜", "酱香", new BigDecimal("55"), new BigDecimal("30"));
+        var preference = new PreferenceContracts.View(List.of("清淡"), List.of("粤菜"), List.of("花生"), List.of("鹅肉"), "减脂", 1500, TemperatureUnit.C);
+        assertThat(policy.softWarnings(goose, preference)).isNotEmpty();
+        assertThat(policy.allowsSafety(List.of(component("鹅肉")), preference)).isFalse();
+        assertThat(policy.allowsSafety(List.of(component("鸭肉")), preference)).isTrue();
+    }
+
     private static PreferenceContracts.View preference(List<String> tastes,List<String> cuisines,List<String> allergies,String goal){
         return new PreferenceContracts.View(tastes,cuisines,allergies,List.of(),goal,1800,TemperatureUnit.C);
     }
