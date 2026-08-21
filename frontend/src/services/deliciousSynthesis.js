@@ -90,7 +90,8 @@ export async function matchRecipeCombination(payload, { signal } = {}) {
   if (recipe) return {
     requestId: result?.synthesisId || null,
     status: 'matched',
-    recipe: { ...mapRecipe(recipe, ingredients), synthesisId: result?.synthesisId || null },
+    recipe: { ...mapRecipe(recipe, ingredients), synthesisId: result?.synthesisId || null, draft: result?.source === 'AI_DRAFT' },
+    source: result?.source || 'LIBRARY',
     matched: result?.matched || [],
     unmatched: result?.unmatched || [],
     suggestion: null,

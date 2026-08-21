@@ -461,6 +461,16 @@ class PhaseOneIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(itemId));
         assertThat(jdbc.queryForObject("select count(*) from inventory_item where id=UUID_TO_BIN(?)", Integer.class, itemId)).isEqualTo(1);
+
+        String batchId = data(confirmed).path("batches").path(0).path("id").asText();
+        String matchBody = objectMapper.writeValueAsString(Map.of("ingredients", List.of(Map.of(
+                "batchId", batchId, "name", "番茄", "quantity", 1, "unit", "piece"))));
+        mvc.perform(post("/api/v1/recipe-synthesis/match")
+                        .header("Authorization", bearer(account)).contentType(MediaType.APPLICATION_JSON).content(matchBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source").value("LIBRARY"))
+                .andExpect(jsonPath("$.data.matched[0]").value("番茄"))
+                .andExpect(jsonPath("$.data.recipes.length()").value(org.hamcrest.Matchers.greaterThan(0)));
     }
 
     @Test
@@ -564,18 +574,20 @@ class PhaseOneIntegrationTest {
                         .header("Authorization", bearer(owner)))
                 .andExpect(status().isOk()).andReturn();
         assertThat(data(ingredientSearch).findValuesAsText("name")).contains("香煎豆腐");
-        MvcResult ingredientGenerate = mvc.perform(post("/api/v1/recipes/generate")
+        MvcResult ingredientRecommend = mvc.perform(post("/api/v1/recipes/recommend")
                         .header("Authorization", bearer(owner)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"prompt\":\"豆腐\",\"inventory\":[],\"count\":3}"))
                 .andExpect(status().isOk()).andReturn();
-        assertThat(data(ingredientGenerate).path("recipes").findValuesAsText("name")).contains("香煎豆腐");
-        assertThat(data(ingredientGenerate).path("fallback").asBoolean()).isTrue();
-        assertThat(data(ingredientGenerate).path("model").asText()).isEqualTo("rules-v2");
+        assertThat(data(ingredientRecommend).path("recipes").findValuesAsText("name")).contains("香煎豆腐");
+        assertThat(data(ingredientRecommend).path("fallback").asBoolean()).isFalse();
+        assertThat(data(ingredientRecommend).path("model").asText()).isEqualTo("library-search-v1");
         MvcResult naturalLanguageGenerate = mvc.perform(post("/api/v1/recipes/generate")
                         .header("Authorization", bearer(owner)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"prompt\":\"晚餐想吃清淡的\",\"inventory\":[],\"count\":3}"))
                 .andExpect(status().isOk()).andReturn();
-        assertThat(data(naturalLanguageGenerate).path("recipes").size()).isEqualTo(3);
+        assertThat(data(naturalLanguageGenerate).path("recipes")).isEmpty();
+        assertThat(data(naturalLanguageGenerate).path("fallback").asBoolean()).isTrue();
+        assertThat(data(naturalLanguageGenerate).path("model").asText()).isEqualTo("unavailable");
         mvc.perform(get("/api/v1/admin/recipe-sources").header("Authorization", bearer(other)))
                 .andExpect(status().isForbidden());
     }

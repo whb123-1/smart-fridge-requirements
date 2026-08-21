@@ -41,6 +41,22 @@ test('数据库无匹配时返回后端建议', async t => {
   assert.equal(result.suggestion.ingredientName, '燕麦片')
 })
 
+test('现有菜谱无匹配时标记 AI 草稿，必须先加入菜谱库', async t => {
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch })
+  globalThis.fetch = async () => response({
+    source: 'AI_DRAFT', matched: ['西兰花'], unmatched: [], suggestions: [],
+    recipes: [{
+      id: 'draft-1', name: '西兰花新做法', cookMinutes: 18, servings: 2,
+      ingredients: [{ id: 'c1', name: '西兰花', role: 'PRIMARY', quantity: 200, unit: 'g' }],
+      missing: [], steps: ['焯水', '翻炒'], bookmarked: false,
+    }],
+  })
+  const result = await matchRecipeCombination({ ingredients: [{ name: '西兰花', quantity: 250, unit: 'g' }] })
+  assert.equal(result.source, 'AI_DRAFT')
+  assert.equal(result.recipe.draft, true)
+})
+
 test('库存单位不一致时明确提示，绝不渲染 null 缺口', async t => {
   const previousFetch = globalThis.fetch
   t.after(() => { globalThis.fetch = previousFetch })

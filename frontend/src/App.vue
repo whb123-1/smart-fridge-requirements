@@ -49,9 +49,11 @@ const cookingRecipe = ref(null)
 const cookingWeight = ref(300)
 const activeCookingStep = ref(0)
 const recipeNameDraft = ref('')
+const recipeSearch = ref('')
+const recipeSearchActive = ref(false)
 const isGeneratingRecipe = ref(false)
 const generatedRecipes = ref([])
-const generatedRecipeMeta = ref({ fallback: true, model: '', rationale: '' })
+const generatedRecipeMeta = ref({ mode: 'library', fallback: false, model: '', rationale: '' })
 const selectedGeneratedIds = ref([])
 const selectedInventoryIngredientIds = ref([])
 const generatedRecipeSelectionCount = ref(0)
@@ -198,7 +200,7 @@ function mapInventoryItem(item) {
   const assessment = batch.assessment || null
   const days = inventoryDays(assessment)
   const category = displayCategory(item.category)
-  return { id: item.id, batchId: batch.id, name: item.name, icon: foodIcon(item.name, category), category, zoneId: batch.zoneId || null, zone: zoneNameForId(batch.zoneId), amount: Number(batch.remainingQuantity || 0), unit: displayUnit(batch.unit || item.defaultUnit), apiUnit: batch.unit || item.defaultUnit, calories: null, days: days ?? 999, status: inventoryStatus(assessment, batch.remainingQuantity), percent: days == null ? 0 : Math.max(0, Math.min(100, Math.round(days / 30 * 100))), received: batch.storedAt ? String(batch.storedAt).slice(0, 10) : '', reminder: batch.remindAt ? String(batch.remindAt).slice(0, 10) : '', source: assessment?.explanation || 'AI 正在汇总食材、分区与环境信息', assessmentSource: assessment?.estimationSource || 'AI_GLOBAL_ESTIMATE', confidence: assessment?.confidence || 'LOW', lowStock: Boolean(item.lowStock), rawCategory: item.category }
+  return { id: item.id, batchId: batch.id, name: item.name, icon: foodIcon(item.name, category), category, zoneId: batch.zoneId || null, zone: zoneNameForId(batch.zoneId), amount: Number(batch.remainingQuantity || 0), unit: displayUnit(batch.unit || item.defaultUnit), apiUnit: batch.unit || item.defaultUnit, days: days ?? 999, status: inventoryStatus(assessment, batch.remainingQuantity), percent: days == null ? 0 : Math.max(0, Math.min(100, Math.round(days / 30 * 100))), received: batch.storedAt ? String(batch.storedAt).slice(0, 10) : '', reminder: batch.remindAt ? String(batch.remindAt).slice(0, 10) : '', assessmentSource: assessment?.estimationSource || 'REFERENCE_TARGET', confidence: assessment?.confidence || 'LOW', lowStock: Boolean(item.lowStock), rawCategory: item.category }
 }
 function mapShoppingItem(item) {
   const amount = item.quantity == null ? '' : `${item.quantity} ${displayUnit(item.unit)}`
@@ -338,7 +340,7 @@ async function refreshPreferences() {
 }
 
 async function refreshRecipes() {
-  const remote = await api.listRecipes()
+  const remote = await api.listRecipes(recipeSearchActive.value ? { query: recipeSearch.value.trim() } : undefined)
   recipes.splice(0, recipes.length, ...(remote || []).map(mapRecipe))
 }
 
@@ -596,36 +598,59 @@ async function updateFoodAmount(food, value) {
 }
 function adjustFoodAmount(food, change) { return updateFoodAmount(food, Math.max(0, Number(food.amount || 0) + change)) }
 
-async function generateRecipes(prompt = '', inventory = foods, selectedCount = 0) {
+function recipeInventoryPayload(inventory) {
+  return inventory.filter(food => food.batchId).map(food => ({
+    batchId: food.batchId, name: food.name, quantity: food.amount, unit: food.apiUnit || apiUnit(food.unit),
+  }))
+}
+function showRecipeResults(result, mode, selectedCount = 0) {
+  generatedRecipes.value = (result.recipes || []).map((item, index) => ({ ...mapRecipe(item, index), draft: mode === 'ai' }))
+  generatedRecipeMeta.value = { mode, fallback: Boolean(result.fallback), model: result.model || '', rationale: result.rationale || '' }
+  selectedGeneratedIds.value = []
+  generatedRecipeSelectionCount.value = selectedCount
+  recipeFilter.value = '全部推荐'
+}
+async function recommendRecipes(inventory = foods, selectedCount = 0) {
+  if (isGeneratingRecipe.value) return false
+  isGeneratingRecipe.value = true
+  try {
+    const result = await api.recommendRecipeBatch({
+      fridgeId: session.fridge?.id,
+      inventory: recipeInventoryPayload(inventory), prompt: '', count: 3,
+    })
+    showRecipeResults(result, 'library', selectedCount)
+    notify(generatedRecipes.value.length ? `已从现有菜谱库找到 ${generatedRecipes.value.length} 个方案` : '现有菜谱库暂无符合库存和偏好的结果')
+    return true
+  } catch (exception) {
+    notify(exception.message || '现有菜谱搜索失败，请稍后重试')
+    return false
+  } finally { isGeneratingRecipe.value = false }
+}
+async function generateAiRecipes(prompt) {
   if (isGeneratingRecipe.value) return false
   isGeneratingRecipe.value = true
   try {
     const result = await api.generateRecipeBatch({
       fridgeId: session.fridge?.id,
-      inventory: inventory.filter(food => food.batchId).map(food => ({
-        batchId: food.batchId, name: food.name, quantity: food.amount, unit: food.apiUnit || apiUnit(food.unit),
-      })),
-      prompt,
+      inventory: recipeInventoryPayload(foods), prompt,
       count: 3,
     })
-    generatedRecipes.value = (result.recipes || []).map(mapRecipe)
-    generatedRecipeMeta.value = {
-      fallback: Boolean(result.fallback),
-      model: result.model || '',
-      rationale: result.rationale || '',
-    }
-    selectedGeneratedIds.value = []
-    generatedRecipeSelectionCount.value = selectedCount
-    recipeFilter.value = '全部推荐'
-    notify(`AI 已找到 ${generatedRecipes.value.length} 个菜谱方案`)
+    showRecipeResults(result, 'ai', 0)
+    notify(generatedRecipes.value.length ? `AI 已生成 ${generatedRecipes.value.length} 道库外菜谱草稿` : (result.rationale || 'AI 暂未生成可用的新菜谱'))
     return true
-  } catch {
-    notify('AI 菜谱搜索失败，请检查服务后重试')
+  } catch (exception) {
+    notify(exception.message || 'AI 菜谱生成失败，请检查服务后重试')
     return false
   } finally { isGeneratingRecipe.value = false }
 }
-function generateInventoryRecipe() { return generateRecipes() }
-async function generateNamedRecipe() { if (!recipeNameDraft.value.trim()) return notify('请描述想要的菜谱'); await generateRecipes(recipeNameDraft.value.trim()); showRecipeNameGenerator.value = false; recipeNameDraft.value = '' }
+function generateInventoryRecipe() { return recommendRecipes() }
+async function generateNamedRecipe() { if (!recipeNameDraft.value.trim()) return notify('请描述想要的菜谱'); await generateAiRecipes(recipeNameDraft.value.trim()); showRecipeNameGenerator.value = false; recipeNameDraft.value = '' }
+async function searchExistingRecipes() {
+  recipeSearchActive.value = Boolean(recipeSearch.value.trim())
+  await refreshRecipes()
+  notify(recipeSearchActive.value ? `现有菜谱库找到 ${recipes.length} 条结果` : '已显示全部现有菜谱')
+}
+async function clearRecipeSearch() { recipeSearch.value = ''; recipeSearchActive.value = false; await refreshRecipes() }
 function openInventoryRecipeSelector() { selectedInventoryIngredientIds.value = []; showInventoryRecipeSelector.value = true }
 function closeInventoryRecipeSelector() { if (isGeneratingRecipe.value) return; selectedInventoryIngredientIds.value = []; showInventoryRecipeSelector.value = false }
 function toggleInventoryRecipeIngredient(food) { const index = selectedInventoryIngredientIds.value.indexOf(food.id); index >= 0 ? selectedInventoryIngredientIds.value.splice(index, 1) : selectedInventoryIngredientIds.value.push(food.id) }
@@ -634,7 +659,7 @@ function clearInventoryRecipeIngredients() { selectedInventoryIngredientIds.valu
 async function generateSelectedInventoryRecipes() {
   const selected = selectedInventoryFoods.value
   if (!selected.length) return notify('请至少选择一项库存食材')
-  const succeeded = await generateRecipes('', selected, selected.length)
+  const succeeded = await recommendRecipes(selected, selected.length)
   if (succeeded) closeInventoryRecipeSelector()
 }
 function toggleGeneratedRecipe(recipe) { const index = selectedGeneratedIds.value.indexOf(recipe.id); index >= 0 ? selectedGeneratedIds.value.splice(index, 1) : selectedGeneratedIds.value.push(recipe.id) }
@@ -642,22 +667,28 @@ async function saveGeneratedRecipes() {
   const selected = generatedRecipes.value.filter(recipe => selectedGeneratedIds.value.includes(recipe.id))
   if (!selected.length) return notify('请至少选择一张菜谱')
   try {
-    await Promise.all(selected.map(recipe => api.setRecipeBookmark(recipe.id, true)))
+    await api.publishGeneratedRecipes(selected.map(recipe => recipe.id))
+    const unselected = generatedRecipes.value.filter(recipe => !selectedGeneratedIds.value.includes(recipe.id)).map(recipe => recipe.id)
+    if (unselected.length) await api.discardGeneratedRecipes(unselected)
     await refreshRecipes()
     generatedRecipes.value = []
-    generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
+    generatedRecipeMeta.value = { mode: 'library', fallback: false, model: '', rationale: '' }
     selectedGeneratedIds.value = []
     generatedRecipeSelectionCount.value = 0
-    notify(`已将 ${selected.length} 道 AI 搜索结果加入我的菜谱`)
-  } catch (exception) { notify(exception.message || '菜谱收藏失败') }
+    notify(`已将 ${selected.length} 道新菜谱加入现有菜谱库`)
+  } catch (exception) { notify(exception.message || '菜谱发布失败') }
 }
 
-function discardGeneratedRecipes() {
+async function discardGeneratedRecipes() {
+  if (generatedRecipeMeta.value.mode === 'ai' && generatedRecipes.value.length) {
+    try { await api.discardGeneratedRecipes(generatedRecipes.value.map(recipe => recipe.id)) }
+    catch (exception) { return notify(exception.message || 'AI 菜谱草稿取消失败') }
+  }
   generatedRecipes.value = []
-  generatedRecipeMeta.value = { fallback: true, model: '', rationale: '' }
+  generatedRecipeMeta.value = { mode: 'library', fallback: false, model: '', rationale: '' }
   selectedGeneratedIds.value = []
   generatedRecipeSelectionCount.value = 0
-  notify('已取消本次 AI 菜谱搜索')
+  notify('已关闭本次菜谱结果')
 }
 function findByIdOrName(collection, args = {}) {
   const id = args.itemId || args.recipeId || args.mealId || args.notificationId || args.zoneId
@@ -710,10 +741,10 @@ async function executeAssistantAction(payload = {}) {
   if (command === 'FIND_RECIPES') {
     const description = String(args.description || '').trim()
     if (!description) throw new Error('请描述想找的菜谱')
-    const succeeded = await generateRecipes(description)
+    const succeeded = await generateAiRecipes(description)
     if (!succeeded) throw new Error('AI 暂时没有找到合适菜谱')
     go('recipes')
-    return `已按“${description}”查找菜谱，请选择要添加的方案`
+    return `已按“${description}”生成库外菜谱草稿，请选择要加入菜谱库的方案`
   }
   if (command === 'BOOKMARK_RECIPE') {
     const recipe = findByIdOrName(recipes, args)
@@ -780,8 +811,9 @@ async function executeAssistantAction(payload = {}) {
       temperatureUnit: args.temperatureUnit ?? unit.value,
     }
     await api.updatePreferences(payload)
-    await refreshPreferences()
-    return '饮食偏好已更新，后续菜谱会自动遵循'
+    await Promise.all([refreshPreferences(), refreshRecipes(), refreshRecipePlans()])
+    generatedRecipes.value = []
+    return '饮食偏好已更新，不符合条件的菜谱已从搜索、推荐与计划视图排除'
   }
   if (command === 'UPDATE_ZONE') {
     const zone = findByIdOrName(zones.value, args)
@@ -802,6 +834,7 @@ async function executeAssistantAction(payload = {}) {
 function openCooking(recipe) { cookingRecipe.value = recipe; cookingWeight.value = recipe.base; activeCookingStep.value = 0; go('cooking') }
 async function completeCooking() {
   if (!cookingRecipe.value) return
+  if (cookingRecipe.value.draft) return notify('请先将这道 AI 草稿加入菜谱库，再开始制作')
   if (cookingRecipe.value.missing.length) return notify(`仍缺少：${cookingRecipe.value.missing.join('、')}`)
   const scale = Number(cookingWeight.value || 0) / Number(cookingRecipe.value.base || 1)
   const consumptions = cookingRecipe.value.ingredients.map(ingredient => {
@@ -1020,6 +1053,7 @@ async function saveProfile() {
       dislikes: [...preferences.dislikes], dietaryGoal: preferences.goal || null,
       calorieTarget: Number(preferences.target), temperatureUnit: unit.value,
     })
+    await Promise.all([refreshPreferences(), refreshRecipes(), refreshRecipePlans()])
     const updatedZones = await Promise.all(zones.value.map(zone => api.updateZone(zone.id, {
       name: zone.name,
       targetTemperatureC: Number(zone.targetTemperature),
@@ -1039,7 +1073,8 @@ async function saveProfile() {
     profile.currentPassword = ''
     profile.password = ''
     profile.confirmPassword = ''
-    notify('账户、偏好与分区目标已写入数据库')
+    generatedRecipes.value = []
+    notify('账户与偏好已保存，菜谱库已按新偏好重新筛选')
   } catch (exception) {
     if (exception.code === 'USERNAME_ALREADY_REGISTERED') notify('该用户名已被占用，请更换后重试')
     else if (exception.code === 'INVALID_CURRENT_PASSWORD') notify('原密码不正确')
@@ -1235,22 +1270,23 @@ async function dismissAssistantAction(proposal) {
         <template v-else-if="page === 'inventory'">
           <section class="page-intro"><div><p class="eyebrow">{{ foods.length }} 项库存</p><h1>冰箱库存</h1><p>按分区、类别和新鲜程度整理每一份食材。</p></div><div class="intro-actions"><button class="secondary-btn" :class="{ listening: isListening }" @click="isListening = !isListening">语音添加</button><button class="primary-btn" @click="showAdd = true"><span v-html="icon('plus', 18)"></span>添加食材</button></div></section>
           <div class="tabs"><button v-for="type in ['全部', '食材', '零食饮料']" :key="type" :class="{ active: inventoryType === type }" @click="inventoryType = type">{{ type }}</button></div><section class="inventory-toolbar"><div class="filter-pills"><button v-for="zone in ['全部', ...allZoneNames, '常温储物区']" :key="zone" :class="{ active: inventoryFilter === zone }" @click="inventoryFilter = zone">{{ zone }}</button></div><label class="mini-search"><span v-html="icon('search', 16)"></span><input v-model="search" placeholder="搜索库存" /></label></section>
-          <section class="inventory-table"><div class="table-head"><span>食材</span><span>存放位置</span><span>剩余数量</span><span>新鲜度 / 建议期限</span><span>热量</span><span></span></div><div v-for="food in filteredFoods" :key="food.id" class="food-row"><span class="food-name"><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }}</small></span></span><span><b>{{ zoneNameForFood(food) }}</b><small>{{ food.zoneId && !zoneById(food.zoneId)?.enabled ? '已隐藏 · ' : '' }}{{ food.source }}</small></span><span class="quantity-cell"><span class="quantity-stepper"><button :disabled="Number(food.amount || 0) <= 0" @click="adjustFoodAmount(food, -1)"><span v-html="icon('minus', 14)"></span></button><input :value="food.amount" type="number" min="0" @change="updateFoodAmount(food, $event.target.value)" /><button @click="adjustFoodAmount(food, 1)"><span v-html="icon('plus', 14)"></span></button></span><small>{{ food.unit }}</small></span><span class="fresh-cell"><i><em :class="food.status" :style="{ width: food.percent + '%' }"></em></i><small :class="food.status">{{ food.days }} 天后建议食用完</small></span><span><b>—</b><small>暂无营养数据库</small></span><span class="row-actions"><button title="编辑食材" @click="editFood(food)"><span v-html="icon('edit', 16)"></span></button></span></div></section>
+          <section class="inventory-table"><div class="table-head"><span>食材</span><span>存放位置</span><span>剩余数量</span><span>新鲜度 / 建议期限</span><span></span></div><div v-for="food in filteredFoods" :key="food.id" class="food-row"><span class="food-name"><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }}</small></span></span><span><b>{{ zoneNameForFood(food) }}</b><small v-if="food.zoneId && !zoneById(food.zoneId)?.enabled">分区已隐藏</small></span><span class="quantity-cell"><span class="quantity-stepper"><button :disabled="Number(food.amount || 0) <= 0" @click="adjustFoodAmount(food, -1)"><span v-html="icon('minus', 14)"></span></button><input :value="food.amount" type="number" min="0" @change="updateFoodAmount(food, $event.target.value)" /><button @click="adjustFoodAmount(food, 1)"><span v-html="icon('plus', 14)"></span></button></span><small>{{ food.unit }}</small></span><span class="fresh-cell"><i><em :class="food.status" :style="{ width: food.percent + '%' }"></em></i><small :class="food.status">{{ food.days }} 天后建议食用完</small></span><span class="row-actions"><button title="编辑食材" @click="editFood(food)"><span v-html="icon('edit', 16)"></span></button></span></div></section>
           <section class="module-history compact-history inventory-history"><div class="section-head"><div><p class="eyebrow">库存动态</p><h2>最近入库与使用</h2></div><small>删除只隐藏这条动态，不回滚实际库存</small></div><article v-for="item in inventoryHistory.slice(0, 5)" :key="`${item.historyKey}-${item.id}`"><span v-html="icon(item.type === '入库' ? 'box' : 'pan', 18)"></span><div><b>{{ item.title }}</b><small>{{ item.meta }}</small></div><em>{{ item.note }}</em><button title="删除库存动态" @click="deleteInventoryHistory(item)"><span v-html="icon('trash', 15)"></span></button></article></section>
         </template>
 
         <template v-else-if="page === 'expiry'">
-          <section class="page-intro"><div><p class="eyebrow">AI 全局保鲜模型</p><h1>保质期提醒</h1><p>用户无需填写保质期；AI 结合食材档案、入库时间、分区目标与传感器风险统一推算。</p></div><button class="primary-btn" @click="go('inventory')">查看全部库存</button></section><section class="expiry-rule-strip"><span v-html="icon('spark', 22)"></span><div><b>实际联动规则</b><p>基础期限来自食材与储存分区；每 5 分钟同步的温湿度若持续越界，会累计风险分钟并单向缩短预计期限，恢复正常也不会返还已扣减时间。</p></div></section><section class="expiry-summary"><article><span class="status-dot urgent"></span><strong>{{ foods.filter(food => food.status === 'urgent').length }}</strong><small>今天优先处理</small></article><article><span class="status-dot soon"></span><strong>{{ foods.filter(food => food.status === 'soon').length }}</strong><small>3 天内到期</small></article><article><span class="status-dot fresh"></span><strong>{{ foods.filter(food => food.status === 'fresh').length }}</strong><small>保存良好</small></article></section><div class="filter-pills expiry-filters"><button v-for="filter in [['全部', '全部'], ['紧急', 'urgent'], ['即将到期', 'soon'], ['良好', 'fresh']]" :key="filter[1]" :class="{ active: expiryFilter === filter[1] }" @click="expiryFilter = filter[1]">{{ filter[0] }}</button></div><section class="expiry-list"><article v-for="food in expiryFoods" :key="food.id" :class="food.status"><i>{{ food.icon }}</i><div><b>{{ food.name }}</b><small>入库 {{ food.received }} · AI 预计到期 {{ dateAfter(food.days) }} · {{ zoneNameForFood(food) }}</small><em>{{ food.source }}</em></div><strong>{{ food.days === 0 ? '今天处理' : `${food.days} 天内` }}</strong><label>提醒日期<input v-model="food.reminder" type="date" @change="updateFoodReminder(food)" /></label><button title="删除食材" @click="deleteFood(food)"><span v-html="icon('trash', 17)"></span></button></article></section>
+          <section class="page-intro"><div><p class="eyebrow">动态期限与环境联动</p><h1>保质期提醒</h1><p>期限会综合食材档案、入库或开封时间、储存分区与实时环境风险更新。</p></div><button class="primary-btn" @click="go('inventory')">查看全部库存</button></section><section class="expiry-rule-strip"><span v-html="icon('clock', 22)"></span><div><b>实际联动规则</b><p>基础期限来自食材与储存分区；每 5 分钟同步的温湿度若持续越界，会累计风险分钟并单向缩短预计期限，恢复正常也不会返还已扣减时间。</p></div></section><section class="expiry-summary"><article><span class="status-dot urgent"></span><strong>{{ foods.filter(food => food.status === 'urgent').length }}</strong><small>今天优先处理</small></article><article><span class="status-dot soon"></span><strong>{{ foods.filter(food => food.status === 'soon').length }}</strong><small>3 天内到期</small></article><article><span class="status-dot fresh"></span><strong>{{ foods.filter(food => food.status === 'fresh').length }}</strong><small>保存良好</small></article></section><div class="filter-pills expiry-filters"><button v-for="filter in [['全部', '全部'], ['紧急', 'urgent'], ['即将到期', 'soon'], ['良好', 'fresh']]" :key="filter[1]" :class="{ active: expiryFilter === filter[1] }" @click="expiryFilter = filter[1]">{{ filter[0] }}</button></div><section class="expiry-list"><article v-for="food in expiryFoods" :key="food.id" :class="food.status"><i>{{ food.icon }}</i><div><b>{{ food.name }}</b><small>入库 {{ food.received }} · 预计到期 {{ dateAfter(food.days) }} · {{ zoneNameForFood(food) }}</small></div><strong>{{ food.days === 0 ? '今天处理' : `${food.days} 天内` }}</strong><label>提醒日期<input v-model="food.reminder" type="date" @change="updateFoodReminder(food)" /></label><button title="删除食材" @click="deleteFood(food)"><span v-html="icon('trash', 17)"></span></button></article></section>
         </template>
 
         <template v-else-if="page === 'synthesis'">
-          <DeliciousSynthesis :foods="foods" :preferences="preferences" @start-cooking="openCooking" />
+          <DeliciousSynthesis :foods="foods" :preferences="preferences" @start-cooking="openCooking" @recipe-published="refreshRecipes" />
         </template>
 
         <template v-else-if="page === 'recipes'">
-          <section class="page-intro"><div><p class="eyebrow">AI 菜谱库 · 搜索、生成与库存匹配</p><h1>AI 菜谱</h1><p>基础菜谱开箱即用；新增菜谱由 AI 按你的描述查找，并自动遵循忌口与{{ preferences.goal || '饮食' }}目标。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>指定库存食材</button><button class="primary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('spark', 18)"></span>AI 搜索并添加</button><button class="secondary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe">{{ isGeneratingRecipe ? 'AI 搜索中' : '按全部库存推荐' }}</button></div></section>
+          <section class="page-intro"><div><p class="eyebrow">现有菜谱库 · 库存匹配 · AI 新菜谱</p><h1>菜谱</h1><p>先搜索现有菜谱；AI 只生成库内没有的新方案，并在你确认后加入菜谱库。</p></div><div class="intro-actions"><button class="secondary-btn" @click="openInventoryRecipeSelector"><span v-html="icon('list', 18)"></span>指定库存食材</button><button class="primary-btn" @click="showRecipeNameGenerator = true"><span v-html="icon('spark', 18)"></span>AI 生成新菜谱</button><button class="secondary-btn" :disabled="isGeneratingRecipe" @click="generateInventoryRecipe">{{ isGeneratingRecipe ? '搜索中' : '按全部库存推荐' }}</button></div></section>
+          <form class="recipe-library-search" role="search" @submit.prevent="searchExistingRecipes"><label><span v-html="icon('search', 18)"></span><input v-model.trim="recipeSearch" maxlength="120" placeholder="搜索现有菜谱、食材、口味或菜系" aria-label="搜索现有菜谱" /></label><button v-if="recipeSearchActive" type="button" class="recipe-search-clear" aria-label="清除菜谱搜索" title="清除搜索" @click="clearRecipeSearch"><span v-html="icon('close', 16)"></span></button><button class="secondary-btn">搜索现有菜谱</button></form>
           <section class="recipe-plan-board"><div class="recipe-plan-head"><div><p class="eyebrow">采购联动</p><h2>待制作菜谱 {{ plannedRecipes.length ? `· ${plannedRecipes.length} 道` : '' }}</h2><p>这里只统计你明确计划制作的菜谱，并按计划份数扣减现有库存。</p></div><button class="secondary-btn" @click="go('shopping')"><span v-html="icon('bag', 17)"></span>查看补货依据</button></div><div v-if="plannedRecipes.length" class="recipe-plan-items"><article v-for="plan in plannedRecipes" :key="plan.id"><span class="recipe-plan-art">{{ plan.recipe.art }}</span><span><b>{{ plan.recipe.name }}</b><small>{{ plan.recipe.ingredients.length }} 种主料 · {{ plan.recipe.time }} 分钟</small></span><span class="recipe-plan-servings"><button :disabled="plan.servings <= 0.5 || recipePlanBusy(plan.recipe)" title="减少计划份数" @click="updateRecipePlanServings(plan, plan.servings - 0.5)"><span v-html="icon('minus', 13)"></span></button><strong>{{ plan.servings }} 份</strong><button :disabled="recipePlanBusy(plan.recipe)" title="增加计划份数" @click="updateRecipePlanServings(plan, plan.servings + 0.5)"><span v-html="icon('plus', 13)"></span></button></span><button class="recipe-plan-remove" :disabled="recipePlanBusy(plan.recipe)" title="移出待制作清单" @click="toggleRecipePlan(plan.recipe)"><span v-html="icon('trash', 16)"></span></button></article></div><p v-else class="recipe-plan-empty">从下方菜谱卡片选择“加入待制作”，采购页才会据此计算菜谱缺料。</p></section>
-            <section v-if="generatedRecipes.length" class="generated-recipes"><div class="generated-recipes-head"><div><p class="eyebrow">AI 搜索结果 · {{ generatedRecipeMeta.fallback ? '基础菜谱智能匹配' : generatedRecipeMeta.model }}</p><h2>{{ generatedRecipeSelectionCount ? `已优先使用 ${generatedRecipeSelectionCount} 项库存食材` : '选择要加入的菜谱' }}</h2><p>{{ generatedRecipeMeta.rationale || 'AI 已结合描述、库存、偏好和营养目标完成搜索。' }}</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">取消</button><button class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">加入我的菜谱 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art cartoon-art"><RecipeCartoonArt :name="recipe.name" :art="recipe.art" :ingredients="recipe.ingredients" :color="recipe.color" :image-url="recipe.cartoonImageUrl" /></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button></div></div></article></div></section>
+            <section v-if="generatedRecipes.length" class="generated-recipes" :class="`mode-${generatedRecipeMeta.mode}`"><div class="generated-recipes-head"><div><p class="eyebrow">{{ generatedRecipeMeta.mode === 'ai' ? `AI 库外草稿 · ${generatedRecipeMeta.model}` : '现有菜谱库推荐' }}</p><h2>{{ generatedRecipeMeta.mode === 'ai' ? '选择要加入菜谱库的新菜谱' : (generatedRecipeSelectionCount ? `优先匹配 ${generatedRecipeSelectionCount} 项指定食材` : '按全部库存匹配') }}</h2><p>{{ generatedRecipeMeta.rationale }}</p></div><div class="generated-recipe-actions"><button class="secondary-btn" @click="discardGeneratedRecipes">关闭</button><button v-if="generatedRecipeMeta.mode === 'ai'" class="primary-btn" :disabled="!selectedGeneratedIds.length" @click="saveGeneratedRecipes">加入菜谱库 {{ selectedGeneratedIds.length ? `(${selectedGeneratedIds.length})` : '' }}</button></div></div><div class="recipe-gallery candidate-gallery"><article v-for="recipe in generatedRecipes" :key="recipe.id" class="recipe-card candidate-card" :class="{ selected: selectedGeneratedIds.includes(recipe.id) }"><button v-if="generatedRecipeMeta.mode === 'ai'" class="candidate-check" :aria-pressed="selectedGeneratedIds.includes(recipe.id)" :title="selectedGeneratedIds.includes(recipe.id) ? '取消选择' : '选择菜谱'" @click="toggleGeneratedRecipe(recipe)"><span v-html="icon('check', 16)"></span></button><div class="recipe-art cartoon-art"><RecipeCartoonArt :name="recipe.name" :art="recipe.art" :ingredients="recipe.ingredients" :color="recipe.color" :image-url="recipe.cartoonImageUrl" /></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>{{ recipe.time }} 分钟</span><span>约 {{ recipe.kcal }} 千卡</span></div><div class="recipe-ingredients"><small>所需食材</small><span v-for="ingredient in recipe.ingredients" :key="ingredient.name" :class="{ missing: recipe.missing.includes(ingredient.name) }">{{ ingredient.name }} {{ ingredient.amount }}{{ ingredient.unit }}</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button v-if="generatedRecipeMeta.mode === 'library'" :class="{ planned: isRecipePlanned(recipe) }" :disabled="recipePlanBusy(recipe)" @click="toggleRecipePlan(recipe)">{{ isRecipePlanned(recipe) ? '已加入待制作' : '加入待制作' }}</button></div></div></article></div></section>
            <div class="filter-pills recipe-filters"><button v-for="filter in ['全部推荐', '可直接制作', '30 分钟内', '高蛋白', '低于 400 千卡', '收藏']" :key="filter" :class="{ active: recipeFilter === filter }" @click="recipeFilter = filter">{{ filter }}</button></div><section v-if="visibleRecipes.length" class="recipe-gallery"><article v-for="recipe in visibleRecipes" :key="recipe.id" class="recipe-card"><div class="recipe-art cartoon-art"><RecipeCartoonArt :name="recipe.name" :art="recipe.art" :ingredients="recipe.ingredients" :color="recipe.color" :image-url="recipe.cartoonImageUrl" /><div class="recipe-art-actions"><button title="收藏菜谱" :class="{ saved: recipe.collected }" @click="toggleRecipeBookmark(recipe)"><span v-html="icon('heart', 18)"></span></button><button v-if="recipe.collected" title="取消收藏" @click="removeRecipeBookmark(recipe)"><span v-html="icon('trash', 17)"></span></button></div></div><div class="recipe-info"><small>{{ recipe.level }}</small><h3>{{ recipe.name }}</h3><p>{{ recipe.desc }}</p><div class="recipe-metrics"><span>⏱ {{ recipe.time }} 分钟</span><span>≈ {{ recipe.kcal }} 千卡</span></div><div class="recipe-card-actions"><button @click="openCooking(recipe)">查看做法</button><button :class="{ planned: isRecipePlanned(recipe) }" :disabled="recipePlanBusy(recipe)" @click="toggleRecipePlan(recipe)">{{ isRecipePlanned(recipe) ? '已加入待制作' : '加入待制作' }}</button></div></div></article></section><section v-else class="recipe-empty"><span v-html="icon('book', 30)"></span><h2>暂无可用菜谱</h2><p>让 AI 按你的描述搜索并添加一道菜谱。</p></section>
         </template>
 
@@ -1262,7 +1298,7 @@ async function dismissAssistantAction(proposal) {
           <section class="page-intro"><div><p class="eyebrow">{{ localDate() }} · 今日</p><h1>饮食健康</h1><p>以下内容全部来自饮食记录与库存流水数据库。</p></div><button class="primary-btn" @click="showMealEditor = true"><span v-html="icon('plus', 18)"></span>记录一餐</button></section>
           <section class="nutrition-grid"><article class="calorie-card"><div class="ring large" :style="{ '--p': caloriePercent }"><div><strong>{{ totalCalories.toLocaleString() }}</strong><span>目标 {{ preferences.target.toLocaleString() }} 千卡</span></div></div><div><p class="eyebrow">今日摄入 · {{ caloriePercent }}%</p><h2>{{ totalCalories > preferences.target ? `已超出 ${totalCalories - preferences.target} 千卡` : `还可摄入 ${preferences.target - totalCalories} 千卡` }}</h2><p>共 {{ dietAnalytics?.mealCount || 0 }} 条数据库记录。</p></div></article><article class="ai-advice"><span v-html="icon('list', 24)"></span><div><p class="eyebrow">今日营养汇总</p><h2>蛋白质 {{ Number(dietAnalytics?.protein || 0).toFixed(1) }} 克</h2><p>脂肪 {{ Number(dietAnalytics?.fat || 0).toFixed(1) }} 克 · 碳水 {{ Number(dietAnalytics?.carbs || 0).toFixed(1) }} 克</p></div></article></section>
           <section class="meal-log"><div class="section-head"><div><p class="eyebrow">时间线</p><h2>今天吃过这些</h2></div><button class="text-btn" @click="showMealEditor = true">添加记录</button></div><div v-for="meal in todaysMeals" :key="meal.id" class="meal-row"><time>{{ meal.time }}</time><i>{{ meal.icon }}</i><span><b>{{ meal.name }}</b><small>{{ meal.food }}</small></span><strong>{{ meal.kcal }} <small>千卡</small></strong><button title="删除记录" @click="deleteMealRecord(meal)"><span v-html="icon('trash', 16)"></span></button></div><p v-if="!todaysMeals.length" class="sensor-form-note">今天还没有饮食记录。</p></section>
-          <section class="diet-insights"><div class="section-head"><div><p class="eyebrow">最近 7 天</p><h2>库存消耗流水</h2></div><span>{{ consumptionAnalytics?.unit || 'MIXED' }}</span></div><div class="diet-insight-grid"><article class="ranking-chart"><p class="eyebrow">真实库存事务汇总</p><h2>已消耗 {{ Number(consumptionAnalytics?.consumed || 0).toFixed(2) }}</h2><ol><li><b>1</b><span>正常食用</span><em>{{ Number(consumptionAnalytics?.consumed || 0).toFixed(2) }}</em></li><li><b>2</b><span>主动丢弃</span><em>{{ Number(consumptionAnalytics?.discarded || 0).toFixed(2) }}</em></li><li><b>3</b><span>过期处理</span><em>{{ Number(consumptionAnalytics?.expired || 0).toFixed(2) }}</em></li></ol></article><article class="ranking-chart"><p class="eyebrow">数据说明</p><h2>不生成虚假评分</h2><p>{{ dietAnalytics?.disclaimer || '暂无分析数据' }}</p></article></div></section>
+          <section class="diet-insights"><div class="section-head"><div><p class="eyebrow">最近 7 天 · 数据说明</p><h2>食材消耗前五名</h2></div><span>实时关联做菜扣减与库存使用记录</span></div><div class="diet-insight-grid"><article class="ranking-chart"><p class="eyebrow">实际食用数量</p><h2>{{ consumptionAnalytics?.topIngredients?.length ? '本周高频消耗食材' : '本周暂无食材消耗' }}</h2><ol v-if="consumptionAnalytics?.topIngredients?.length"><li v-for="(item, index) in consumptionAnalytics.topIngredients" :key="`${item.name}-${item.unit}`"><b>{{ index + 1 }}</b><span>{{ item.name }}<small>{{ item.transactions }} 次使用记录</small></span><em>{{ Number(item.quantity).toFixed(2) }} {{ displayUnit(item.unit) }}</em></li></ol><p v-else>完成菜谱制作或登记库存使用后，这里会按真实扣减数量自动更新。</p></article><article class="ranking-chart data-method"><p class="eyebrow">统计口径</p><h2>只使用真实库存事务</h2><p>排名聚合最近 7 天未删除的食用记录，并按食材名称与单位汇总。不同单位不会互相换算，删除的库存动态不会进入统计。</p><p>{{ dietAnalytics?.disclaimer || '营养数据仅供日常饮食参考。' }}</p></article></div></section>
         </template>
 
         <template v-else-if="page === 'shopping'">
@@ -1288,13 +1324,13 @@ async function dismissAssistantAction(proposal) {
       </div>
     </main>
 
-    <div v-if="showAdd" class="modal-backdrop" @click.self="showAdd = false"><form class="modal" @submit.prevent="addFood"><div class="modal-head"><div><p class="eyebrow">库存录入</p><h2>添加食材</h2></div><button type="button" @click="showAdd = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="newFood.name" context="ingredient" placeholder="例如：鸡胸肉" aria-label="食材名称" /></label><label>分类<select v-model="newFood.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>存放位置<select v-model="newFood.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>数量<input v-model="newFood.amount" type="number" placeholder="可留空" /></label><label>单位<select v-model="newFood.unit"><option>克</option><option>千克</option><option>个</option><option>盒</option><option>瓶</option><option>毫升</option></select></label><label>入库日期<input v-model="newFood.date" type="date" /></label></div><div class="ai-field-note"><span v-html="icon('spark', 16)"></span>保质期由 AI 根据食材档案、分区目标和环境风险推算，无需手动填写。</div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showAdd = false">取消</button><button class="primary-btn">放入冰箱</button></div></form></div>
+    <div v-if="showAdd" class="modal-backdrop" @click.self="showAdd = false"><form class="modal" @submit.prevent="addFood"><div class="modal-head"><div><p class="eyebrow">库存录入</p><h2>添加食材</h2></div><button type="button" @click="showAdd = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="newFood.name" context="ingredient" placeholder="例如：鸡胸肉" aria-label="食材名称" /></label><label>分类<select v-model="newFood.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>存放位置<select v-model="newFood.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label><label>数量<input v-model="newFood.amount" type="number" placeholder="可留空" /></label><label>单位<select v-model="newFood.unit"><option>克</option><option>千克</option><option>个</option><option>盒</option><option>瓶</option><option>毫升</option></select></label><label>入库日期<input v-model="newFood.date" type="date" /></label></div><div class="ai-field-note"><span v-html="icon('clock', 16)"></span>入库后自动建立建议期限，并持续关联分区环境风险。</div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showAdd = false">取消</button><button class="primary-btn">放入冰箱</button></div></form></div>
     <div v-if="showFoodEditor && selectedFood" class="modal-backdrop" @click.self="showFoodEditor = false"><form class="modal compact-modal" @submit.prevent="saveFood"><div class="modal-head"><div><p class="eyebrow">库存编辑</p><h2>{{ foodDraft.name }}</h2></div><button type="button" @click="showFoodEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">名称<NameSuggestionInput v-model="foodDraft.name" context="ingredient" aria-label="食材名称" /></label><label>分类<select v-model="foodDraft.category"><option>蔬菜</option><option>水果</option><option>肉蛋</option><option>水产</option><option>豆制品</option><option>零食</option><option>饮料</option><option>调味品</option></select></label><label>数量<input v-model="foodDraft.amount" type="number" min="0" /></label><label>单位<input v-model="foodDraft.unit" /></label><label>存放位置<select v-model="foodDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="modal-actions"><button type="button" class="danger-btn" @click="deleteFood(selectedFood)">删除食材</button><button class="primary-btn">保存更改</button></div></form></div>
     <div v-if="showMealEditor" class="modal-backdrop" @click.self="showMealEditor = false"><form class="modal compact-modal meal-modal" @submit.prevent="recordMeal"><div class="modal-head"><div><p class="eyebrow">AI 饮食记录</p><h2>记录一餐</h2></div><button type="button" @click="showMealEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">菜品名称<NameSuggestionInput v-model="mealDraft.name" context="dish" placeholder="例如：鸡胸肉豆腐煲" aria-label="菜品名称" /></label><label>餐次<select v-model="mealDraft.meal"><option>早餐</option><option>午餐</option><option>晚餐</option><option>加餐</option></select></label><label>数量 / 重量<input v-model="mealDraft.amount" placeholder="不填则按常见一份" /></label><label>单位<select v-model="mealDraft.unit"><option>克</option><option>份</option><option>个</option></select></label></div><div class="meal-estimate" :class="{ loading: isEstimatingMeal, error: mealEstimateError }"><span v-html="icon('spark', 20)"></span><div v-if="isEstimatingMeal"><b>AI 正在估算热量</b><small>结合菜品名称和本次份量计算营养数据</small></div><div v-else-if="mealEstimate"><b>AI 估算 {{ mealEstimate.calories }} 千卡</b><small>{{ mealEstimateSource(mealEstimate.source) }} · 蛋白质约 {{ mealEstimate.protein ?? '—' }} 克 · 仅供日常饮食参考</small></div><div v-else-if="mealEstimateError"><b>{{ mealEstimateError }}</b><button type="button" class="text-btn" @click="estimateMealNutrition">重新估算</button></div><div v-else><b>输入菜品，AI 将自动估算热量</b><small>份量越准确，估算结果越接近实际</small></div></div><div class="modal-actions lowered-actions"><button type="button" class="secondary-btn" @click="showMealEditor = false">取消</button><button class="primary-btn" :disabled="!mealEstimate || isEstimatingMeal" >记录饮食</button></div></form></div>
     <div v-if="showShoppingEditor" class="modal-backdrop" @click.self="showShoppingEditor = false"><form class="modal compact-modal" @submit.prevent="saveShoppingItem"><div class="modal-head"><div><p class="eyebrow">采购清单</p><h2>{{ shopDraft.id ? '编辑项目' : '添加项目' }}</h2></div><button type="button" @click="showShoppingEditor = false"><span v-html="icon('close')"></span></button></div><div class="form-grid"><label class="wide">项目名称<NameSuggestionInput v-model="shopDraft.name" context="ingredient" placeholder="例如：燕麦片" aria-label="采购项目名称" /></label><label>分类<select v-model="shopDraft.group"><option>蔬果</option><option>主食</option><option>调味品</option><option>菜谱缺料</option><option>其他</option></select></label><label>数量 / 单位<input v-model="shopDraft.amount" placeholder="例如：1 袋" /></label><label class="wide">备注<input v-model="shopDraft.note" placeholder="例如：低于常用库存" /></label><label>采购状态<select v-model="shopDraft.status" :disabled="shopDraft.status === 'stored'"><option value="pending">待购买</option><option value="purchased">已购买</option><option v-if="shopDraft.status === 'stored'" value="stored">已入库</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showShoppingEditor = false">取消</button><button class="primary-btn">保存项目</button></div></form></div>
-    <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="ai-field-note"><span v-html="icon('spark', 16)"></span>入库后由 AI 重新计算全局保鲜期限，并吸收后续传感器风险。</div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
-    <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">AI 库存配菜</p><h2>选择优先食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择想优先消耗的食材，AI 会结合完整库存、饮食偏好和基础菜谱找出 3 个方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于生成菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 搜索中' : `用已选食材找菜谱 (${selectedInventoryFoods.length})` }}</button></div></form></div>
-    <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal ai-recipe-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 搜索与生成</p><h2>描述你想要的菜谱</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜谱描述<textarea v-model.trim="recipeNameDraft" rows="4" maxlength="500" placeholder="例如：想吃一道 20 分钟能完成、微辣、高蛋白的鸡胸肉菜，尽量用掉西兰花" aria-label="菜谱描述"></textarea></label><div class="ai-recipe-hints"><span>可描述菜名</span><span>口味与用时</span><span>想用的食材</span><span>营养目标</span></div><p class="recipe-generator-note">AI 会先搜索基础菜谱库，再根据你的描述、库存和偏好生成最合适的候选；菜谱插图统一使用贴合菜名的卡通风格。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="!recipeNameDraft.trim() || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 正在搜索' : 'AI 搜索菜谱' }}</button></div></form></div>
+    <div v-if="showPurchase && selectedShopItem" class="modal-backdrop" @click.self="showPurchase = false"><form class="modal compact-modal" @submit.prevent="confirmPurchase"><div class="modal-head"><div><p class="eyebrow">购买入库</p><h2>{{ selectedShopItem.name }}</h2></div><button type="button" @click="showPurchase = false"><span v-html="icon('close')"></span></button></div><p class="purchase-note">确认后会写入库存，并将该采购项标记为“已入库”。</p><div class="form-grid"><label>数量<input v-model="purchaseDraft.amount" type="number" /></label><label>单位<select v-model="purchaseDraft.unit"><option>克</option><option>个</option><option>盒</option><option>瓶</option><option>袋</option></select></label><label>存放位置<select v-model="purchaseDraft.zoneId"><option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option><option :value="null">常温储物区</option></select></label></div><div class="modal-actions"><button type="button" class="secondary-btn" @click="showPurchase = false">取消</button><button class="primary-btn">确认入库</button></div></form></div>
+    <div v-if="showInventoryRecipeSelector" class="modal-backdrop" @click.self="closeInventoryRecipeSelector"><form class="modal compact-modal inventory-recipe-modal" @submit.prevent="generateSelectedInventoryRecipes"><div class="modal-head"><div><p class="eyebrow">现有菜谱库匹配</p><h2>选择优先食材</h2></div><button type="button" :disabled="isGeneratingRecipe" aria-label="关闭食材选择" @click="closeInventoryRecipeSelector"><span v-html="icon('close')"></span></button></div><p class="recipe-generator-note">选择想优先消耗的食材，系统会在符合饮食偏好的现有菜谱中找出 3 个匹配方案。</p><div class="inventory-selection-toolbar"><strong>已选 {{ selectedInventoryFoods.length }} 项</strong><span><button type="button" class="text-btn" :disabled="!selectableInventoryFoods.length" @click="selectAllInventoryRecipeIngredients">全选</button><button type="button" class="text-btn" :disabled="!selectedInventoryFoods.length" @click="clearInventoryRecipeIngredients">清空</button></span></div><div v-if="selectableInventoryFoods.length" class="inventory-recipe-options"><label v-for="food in selectableInventoryFoods" :key="food.id" class="inventory-recipe-option" :class="{ selected: selectedInventoryIngredientIds.includes(food.id) }"><input type="checkbox" :checked="selectedInventoryIngredientIds.includes(food.id)" @change="toggleInventoryRecipeIngredient(food)" /><i>{{ food.icon }}</i><span><b>{{ food.name }}</b><small>{{ food.category }} · {{ zoneNameForFood(food) }}</small></span><em>{{ food.amount }}{{ food.unit }}</em></label></div><div v-else class="inventory-recipe-empty"><span v-html="icon('box', 24)"></span><p>暂无可用于匹配菜谱的库存食材。</p></div><div class="modal-actions"><button type="button" class="secondary-btn" :disabled="isGeneratingRecipe" @click="closeInventoryRecipeSelector">取消</button><button class="primary-btn" :disabled="!selectedInventoryFoods.length || isGeneratingRecipe">{{ isGeneratingRecipe ? '搜索中' : `用已选食材找现有菜谱 (${selectedInventoryFoods.length})` }}</button></div></form></div>
+    <div v-if="showRecipeNameGenerator" class="modal-backdrop" @click.self="showRecipeNameGenerator = false"><form class="modal compact-modal ai-recipe-modal" @submit.prevent="generateNamedRecipe"><div class="modal-head"><div><p class="eyebrow">AI 新菜谱</p><h2>描述你想要的菜谱</h2></div><button type="button" @click="showRecipeNameGenerator = false"><span v-html="icon('close')"></span></button></div><label>菜谱描述<textarea v-model.trim="recipeNameDraft" rows="4" maxlength="500" placeholder="例如：想吃一道 20 分钟能完成、微辣、高蛋白的鸡胸肉菜，尽量用掉西兰花" aria-label="菜谱描述"></textarea></label><div class="ai-recipe-hints"><span>菜名或灵感</span><span>口味与用时</span><span>想用的食材</span><span>营养目标</span></div><p class="recipe-generator-note">AI 会避开现有菜谱名称，结合库存与饮食偏好生成最多 3 道新草稿；只有你确认的草稿才会加入现有菜谱库。</p><div class="modal-actions"><button type="button" class="secondary-btn" @click="showRecipeNameGenerator = false">取消</button><button class="primary-btn" :disabled="!recipeNameDraft.trim() || isGeneratingRecipe">{{ isGeneratingRecipe ? 'AI 正在生成' : '生成库外新菜谱' }}</button></div></form></div>
     <transition name="toast"><div v-if="toast" class="toast"><span v-html="icon('check', 17)"></span>{{ toast }}</div></transition><AssistantPet v-model:open="assistantOpen" v-model:input="assistantInput" :page-name="assistantPageName" :messages="assistantMessages" :proposals="assistantProposals" :busy-proposal-id="assistantActionBusy" :answering="assistantPendingRequests > 0" @send="sendAssistantMessage" @confirm="confirmAssistantAction" @dismiss="dismissAssistantAction" />
   </div>
 </template>

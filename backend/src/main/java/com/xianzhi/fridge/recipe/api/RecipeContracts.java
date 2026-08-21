@@ -20,9 +20,10 @@ public final class RecipeContracts {
                              String imageUrl,String imageSourceUrl,String imageAttribution,
                              String availability,List<String> missing,List<String> validationWarnings) { }
     public record GenerateRequest(UUID fridgeId,@Size(max=500) String prompt,List<@Valid IngredientInput> inventory,@Min(1) @Max(3) Integer count) { }
+    public record GeneratedRecipeSelection(@NotEmpty @Size(max=3) List<@NotNull UUID> recipeIds) { }
     public record IngredientInput(UUID batchId,@NotBlank String name,BigDecimal quantity,String unit) { }
     public record MatchRequest(@NotEmpty @Size(max=4) List<@Valid IngredientInput> ingredients) { }
-    public record MatchView(UUID synthesisId,List<RecipeView> recipes,List<String> matched,List<String> unmatched,List<String> suggestions) { }
+    public record MatchView(UUID synthesisId,List<RecipeView> recipes,List<String> matched,List<String> unmatched,List<String> suggestions,String source) { }
     public record ScaleRequest(@NotNull UUID primaryComponentId,@NotNull @DecimalMin("0.001") BigDecimal quantity,
                                @NotBlank String unit,@NotNull @DecimalMin("0.1") BigDecimal servings) { }
     public record ScaleView(UUID recipeId,BigDecimal servings,List<Component> components,Nutrition total,Nutrition perServing) { }

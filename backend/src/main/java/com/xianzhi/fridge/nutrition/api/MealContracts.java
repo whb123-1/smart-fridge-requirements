@@ -3,6 +3,7 @@ package com.xianzhi.fridge.nutrition.api;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public final class MealContracts {
@@ -13,6 +14,8 @@ public final class MealContracts {
                                 @NotNull @DecimalMin("0.1") BigDecimal servings,BigDecimal calories,BigDecimal protein,BigDecimal fat,BigDecimal carbs,
                                 Boolean estimated,String nutritionSource) { }
     public record MealView(UUID id,UUID recipeId,Instant mealAt,String mealType,String name,BigDecimal servings,NutritionView nutrition) { }
-    public record ConsumptionView(String period,BigDecimal consumed,BigDecimal discarded,BigDecimal expired,String unit) { }
+    public record ConsumptionItem(String name,BigDecimal quantity,String unit,int transactions) { }
+    public record ConsumptionView(String period,BigDecimal consumed,BigDecimal discarded,BigDecimal expired,String unit,
+                                  List<ConsumptionItem> topIngredients) { }
     public record DietView(Instant from,Instant to,BigDecimal calories,BigDecimal protein,BigDecimal fat,BigDecimal carbs,int mealCount,String disclaimer) { }
 }

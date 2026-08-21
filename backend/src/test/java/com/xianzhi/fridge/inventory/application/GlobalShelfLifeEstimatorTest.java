@@ -30,6 +30,6 @@ class GlobalShelfLifeEstimatorTest {
         var estimate = new GlobalShelfLifeEstimator().estimate(item, batch, null, profile, "FRESH", storedAt);
         assertThat(estimate.baseExpiryAt()).isEqualTo(storedAt.plusSeconds(120L * 3600));
         assertThat(estimate.source()).isEqualTo(AssessmentSource.CATALOG_PROFILE);
-        assertThat(estimate.explanation()).contains("AI 全局推算", "分区目标", "传感器异常");
+        assertThat(estimate.explanation()).contains("食材档案", "分区目标", "传感器异常").doesNotContain("AI 全局推算");
     }
 }

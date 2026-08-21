@@ -1,17 +1,19 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ingredientAvailabilityMessage, matchRecipeCombination } from '../services/deliciousSynthesis'
+import { api } from '../services/api'
 
 const props = defineProps({
   foods: { type: Array, required: true },
   preferences: { type: Object, required: true },
 })
 
-const emit = defineEmits(['start-cooking'])
+const emit = defineEmits(['start-cooking', 'recipe-published'])
 
 const selectedIngredients = ref([])
 const matchResult = ref(null)
 const isMatching = ref(false)
+const isPublishing = ref(false)
 const matchError = ref('')
 const inlineNotice = ref('')
 const isDragOver = ref(false)
@@ -80,6 +82,21 @@ async function runMatch() {
   } finally {
     if (version === requestVersion) isMatching.value = false
   }
+}
+
+async function publishAiRecipe() {
+  const recipe = matchResult.value?.recipe
+  if (!recipe?.draft || isPublishing.value) return
+  isPublishing.value = true
+  try {
+    await api.publishGeneratedRecipes([recipe.id])
+    recipe.draft = false
+    matchResult.value.source = 'LIBRARY'
+    emit('recipe-published')
+    setNotice(`${recipe.name} 已加入菜谱库`)
+  } catch (error) {
+    setNotice(error?.message || '菜谱加入失败，请稍后重试')
+  } finally { isPublishing.value = false }
 }
 
 function addIngredient(food, { bounce = false } = {}) {
@@ -304,7 +321,7 @@ onBeforeUnmount(() => {
           <header>
             <span class="result-art">{{ matchResult.recipe.art }}</span>
             <div>
-              <p class="eyebrow">组合推荐 · 优先使用所选食材</p>
+              <p class="eyebrow">{{ matchResult.source === 'AI_DRAFT' ? '现有菜谱无匹配 · AI 新方案' : '现有菜谱库 · 优先使用所选食材' }}</p>
               <h2>{{ matchResult.recipe.name }}</h2>
               <p>{{ matchResult.recipe.desc }}</p>
             </div>
@@ -332,9 +349,10 @@ onBeforeUnmount(() => {
 
           <footer>
             <span :class="{ warning: matchResult.recipe.missing.length }">
-              {{ matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : matchResult.unmatched?.length ? `本菜谱未使用：${matchResult.unmatched.join('、')}` : `当前库存可以直接制作 · AI 估算每份 ${matchResult.recipe.kcal} 千卡` }}
+              {{ matchResult.recipe.draft ? '这是尚未入库的新菜谱草稿' : matchResult.recipe.missing.length ? `还缺 ${matchResult.recipe.missing.join('、')}` : matchResult.unmatched?.length ? `本菜谱未使用：${matchResult.unmatched.join('、')}` : `当前库存可以直接制作 · 每份约 ${matchResult.recipe.kcal} 千卡` }}
             </span>
-            <button class="start-cooking" :disabled="matchResult.recipe.missing.length" @click="startCooking">开始做菜</button>
+            <button v-if="matchResult.recipe.draft" class="start-cooking" :disabled="isPublishing" @click="publishAiRecipe">{{ isPublishing ? '正在加入' : '加入菜谱库' }}</button>
+            <button v-else class="start-cooking" :disabled="matchResult.recipe.missing.length" @click="startCooking">开始做菜</button>
           </footer>
         </article>
 

@@ -71,6 +71,48 @@ class OpenAiRecipeGenerationAdapterTest {
         assertThat(result.recipeIds()).containsExactly(id);
     }
 
+    @Test
+    void discoversOnlyValidRecipesThatDoNotReuseExistingTitles() throws Exception {
+        AssistantProperties properties = new AssistantProperties();
+        properties.setExternalCallsEnabled(true);
+        properties.setBaseUrl("https://example.test/v1");
+        properties.setModelName("test-model");
+        ExternalProviderClient client = mock(ExternalProviderClient.class);
+        var duplicate = mapper.createObjectNode();
+        duplicate.put("title", "番茄炒蛋");
+        duplicate.put("summary", "重复菜谱");
+        duplicate.putArray("ingredients").addObject().put("name", "番茄").put("role", "PRIMARY").put("quantity", 200).put("unit", "g").put("scalingRule", "LINEAR");
+        duplicate.putArray("steps").add("切配").add("炒熟");
+        var novel = mapper.createObjectNode();
+        novel.put("title", "西兰花鸡胸焖饭");
+        novel.put("summary", "使用库存食材的高蛋白焖饭");
+        novel.put("cuisine", "家常菜").put("taste", "清淡").put("goal", "增肌").put("cookMinutes", 25).put("servings", 2);
+        novel.putObject("nutrition").put("calories", 620).put("protein", 58).put("fat", 14).put("carbs", 72);
+        novel.putArray("ingredients").addObject().put("name", "鸡胸肉").put("role", "PRIMARY").put("quantity", 250).put("unit", "g").put("scalingRule", "LINEAR");
+        novel.withArray("ingredients").addObject().put("name", "西兰花").put("role", "SIDE").put("quantity", 180).put("unit", "g").put("scalingRule", "LINEAR");
+        novel.putArray("steps").add("鸡胸肉切丁并煎至变色").add("加入米饭和西兰花焖熟");
+        var output = mapper.createObjectNode();
+        output.putArray("recipes").add(duplicate).add(novel);
+        output.put("rationale", "避开现有菜谱生成");
+        var response = mapper.createObjectNode();
+        response.putArray("choices").addObject().putObject("message").put("content", mapper.writeValueAsString(output));
+        when(client.postJson(any(), any(), any(), any(), any())).thenReturn(response);
+
+        var result = new OpenAiRecipeGenerationAdapter(properties, client, mapper).discover("高蛋白晚餐",
+                List.of("番茄炒蛋"), List.of(), List.of("清淡"), List.of("家常菜"), List.of("花生"), "增肌", 2000, 2);
+
+        assertThat(result.fallback()).isFalse();
+        assertThat(result.recipes()).extracting(RecipeGenerationPort.Draft::title).containsExactly("西兰花鸡胸焖饭");
+    }
+
+    @Test
+    void discoveryReturnsNoInventedRecipesWhenExternalAiIsDisabled() {
+        var result = new OpenAiRecipeGenerationAdapter(new AssistantProperties(), mock(ExternalProviderClient.class), mapper)
+                .discover("随便做一道", List.of(), List.of(), List.of(), List.of(), List.of(), null, null, 3);
+        assertThat(result.fallback()).isTrue();
+        assertThat(result.recipes()).isEmpty();
+    }
+
     private static RecipeGenerationPort.Candidate candidate(UUID id) {
         return new RecipeGenerationPort.Candidate(id, "番茄炒蛋", "家常菜", "家常菜", "咸鲜", "均衡", 15,
                 List.of("番茄", "鸡蛋"), 1, 1);

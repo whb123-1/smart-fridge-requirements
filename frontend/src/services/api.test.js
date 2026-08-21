@@ -91,6 +91,26 @@ test('recipe planning uses fridge-scoped reads and idempotent writes', async t =
   calls.slice(1).forEach(call => assert.match(call.options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/))
 })
 
+test('library recommendations and AI draft publishing use separate endpoints', async t => {
+  const calls = []
+  const previousFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = previousFetch; api.clearAccessToken() })
+  globalThis.fetch = async (url, options) => { calls.push({ url, options }); return response({ recipes: [] }) }
+
+  await api.recommendRecipeBatch({ inventory: [], count: 3 })
+  await api.generateRecipeBatch({ prompt: '新菜谱', inventory: [], count: 3 })
+  await api.publishGeneratedRecipes(['draft-1'])
+  await api.discardGeneratedRecipes(['draft-2'])
+
+  assert.deepEqual(calls.map(call => call.url), [
+    '/api/v1/recipes/recommend', '/api/v1/recipes/generate',
+    '/api/v1/recipes/generated/publish', '/api/v1/recipes/generated/discard',
+  ])
+  assert.equal(calls[0].options.headers['Idempotency-Key'], undefined)
+  assert.equal(calls[1].options.headers['Idempotency-Key'], undefined)
+  calls.slice(2).forEach(call => assert.match(call.options.headers['Idempotency-Key'], /^[0-9a-f-]{36}$/))
+})
+
 test('recipe, meal, preference and assistant flows use v1 APIs with idempotent writes', async t => {
   const calls = []
   const previousFetch = globalThis.fetch

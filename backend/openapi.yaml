@@ -379,7 +379,26 @@ paths:
   /recipes/generate:
     post:
       operationId: generateRecipes
+      description: Generates new user-owned AI recipe drafts that do not duplicate the published library.
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GenerateRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /recipes/recommend:
+    post:
+      operationId: recommendRecipes
+      description: Searches and ranks recipes that already exist in the published library.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GenerateRecipeRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
+  /recipes/generated/publish:
+    post:
+      operationId: publishGeneratedRecipes
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GeneratedRecipeSelection' } } } }
+      responses: { '200': { $ref: '#/components/responses/GenericSuccess' }, '409': { $ref: '#/components/responses/ConflictError' }, '422': { $ref: '#/components/responses/UnprocessableError' } }
+  /recipes/generated/discard:
+    post:
+      operationId: discardGeneratedRecipes
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GeneratedRecipeSelection' } } } }
       responses: { '200': { $ref: '#/components/responses/GenericSuccess' } }
   /recipe-synthesis/match:
     post:
@@ -949,6 +968,16 @@ components:
         prompt: { type: string, maxLength: 500 }
         inventory: { type: array, items: { $ref: '#/components/schemas/RecipeIngredientInput' } }
         count: { type: integer, minimum: 1, maximum: 3 }
+    GeneratedRecipeSelection:
+      type: object
+      required: [recipeIds]
+      properties:
+        recipeIds:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items: { type: string, format: uuid }
     MatchRecipeRequest:
       type: object
       required: [ingredients]

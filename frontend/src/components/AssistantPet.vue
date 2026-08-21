@@ -21,6 +21,7 @@ const emit = defineEmits(['update:open', 'update:input', 'send', 'confirm', 'dis
 
 const rootRef = ref(null)
 const panelRef = ref(null)
+const manualOpen = ref(false)
 const isDragging = ref(false)
 const idleImageIndex = ref(Math.floor(Math.random() * idleImages.length))
 const suppressClick = ref(false)
@@ -50,6 +51,8 @@ let idleRotationTimer = null
 
 const closeIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 const sendIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
+const bookIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Z"/><path d="M8 8h8M8 12h6"/></svg>'
+const backIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>'
 
 const rootStyle = computed(() => ({
   left: `${Math.round(position.x)}px`,
@@ -191,6 +194,10 @@ function toggleOpen() {
 function handleKeydown(event) {
   if (event.key === 'Escape' && props.open) {
     event.preventDefault()
+    if (manualOpen.value) {
+      manualOpen.value = false
+      return
+    }
     emit('update:open', false)
   }
 }
@@ -211,7 +218,9 @@ onBeforeUnmount(() => {
 
 watch(() => props.open, open => {
   if (open) nextTick(readPanelSize)
+  else manualOpen.value = false
 })
+watch(manualOpen, () => nextTick(readPanelSize))
 </script>
 
 <template>
@@ -221,19 +230,29 @@ watch(() => props.open, open => {
         <div><img class="ai-pet-mini" :src="currentImage" alt="" draggable="false" /><div><small>鲜知 AI 管家</small><b>可操作{{ pageName }}及全站功能</b></div></div>
         <button type="button" aria-label="关闭助手" @click="emit('update:open', false)"><span v-html="closeIcon"></span></button>
       </header>
-      <div class="ai-pet-messages" aria-live="polite"><p v-for="message in messages" :key="message.id" :class="message.role">{{ message.text }}</p></div>
-      <div v-if="proposals.length" class="ai-pet-actions" aria-label="待确认操作">
-        <article v-for="proposal in proposals" :key="proposal.id">
-          <span>AI 准备执行</span>
-          <b>{{ proposal.title }}</b>
-          <div><button type="button" class="dismiss" :disabled="busyProposalId === proposal.id" @click="emit('dismiss', proposal)">取消</button><button type="button" class="confirm" :disabled="Boolean(busyProposalId)" @click="emit('confirm', proposal)">{{ busyProposalId === proposal.id ? '执行中…' : '确认执行' }}</button></div>
-        </article>
-      </div>
-      <div class="ai-pet-prompts">
-        <button type="button" @click="emit('send', '在冷藏区添加 100 克鸡蛋和 2 个番茄')">批量添加食材</button>
-        <button type="button" @click="emit('send', '冰箱状态如何')">冰箱状态</button>
-        <button type="button" @click="emit('send', '用现有库存帮我找三道快手菜谱')">AI 找菜谱</button>
-      </div>
+      <template v-if="manualOpen">
+        <section class="ai-manual" aria-label="AI 使用说明书">
+          <div class="ai-manual-cover"><span v-html="bookIcon"></span><div><small>鲜知指南 01</small><h2>AI 使用说明书</h2><p>把目标、对象和必要条件说清楚，助手会结合当前页面与已登录账号的数据处理。</p></div></div>
+          <ol>
+            <li><b>查询与建议</b><span>可询问库存、保质期、环境状态、菜谱与采购信息。</span></li>
+            <li><b>明确描述</b><span>带上食材名、数量、分区或时间，结果会更准确。</span></li>
+            <li><b>操作需确认</b><span>添加、调整、删除和状态变更会先生成待确认操作。</span></li>
+            <li><b>数据有边界</b><span>回答基于当前账号记录；营养和期限结果用于日常参考。</span></li>
+          </ol>
+          <p class="ai-manual-note">涉及过敏、食品安全或医疗判断时，请以包装说明和专业意见为准。</p>
+        </section>
+      </template>
+      <template v-else>
+        <div class="ai-pet-messages" aria-live="polite"><p v-for="message in messages" :key="message.id" :class="message.role">{{ message.text }}</p></div>
+        <div v-if="proposals.length" class="ai-pet-actions" aria-label="待确认操作">
+          <article v-for="proposal in proposals" :key="proposal.id">
+            <span>AI 准备执行</span>
+            <b>{{ proposal.title }}</b>
+            <div><button type="button" class="dismiss" :disabled="busyProposalId === proposal.id" @click="emit('dismiss', proposal)">取消</button><button type="button" class="confirm" :disabled="Boolean(busyProposalId)" @click="emit('confirm', proposal)">{{ busyProposalId === proposal.id ? '执行中…' : '确认执行' }}</button></div>
+          </article>
+        </div>
+      </template>
+      <button type="button" class="ai-manual-toggle" :aria-expanded="manualOpen" @click="manualOpen = !manualOpen"><span v-html="manualOpen ? backIcon : bookIcon"></span><span><b>{{ manualOpen ? '返回对话' : 'AI 使用说明' }}</b><small>{{ manualOpen ? '继续向鲜知提问' : '能力、确认机制与数据边界' }}</small></span></button>
       <form class="ai-pet-input" @submit.prevent="emit('send', '')">
         <input :value="input" placeholder="问问鲜知助手" aria-label="输入问题" @input="emit('update:input', $event.target.value)" />
         <button :disabled="!input.trim()" aria-label="发送问题"><span v-html="sendIcon"></span></button>
